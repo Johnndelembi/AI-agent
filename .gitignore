@@ -22,4 +22,5 @@ environ/
 .env.txt.bak.3
 .env.txt.bak.4
 .env.txt.bak.5
+*.audio_output/
 
