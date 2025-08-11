@@ -1,5 +1,71 @@
 import os
 import logging
+import subprocess
+import sys
+
+# Configure logging first
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Configure PyTorch to reduce warnings
+import warnings
+import os
+
+# Set PyTorch environment variables to reduce warnings BEFORE importing torch
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+os.environ['PYTORCH_DISABLE_WARNINGS'] = '1'
+os.environ['TORCH_WARN_ONCE'] = '0'
+os.environ['PYTORCH_WARN_ONCE'] = '0'
+
+# Suppress all warnings at the system level
+warnings.filterwarnings("ignore")
+
+# Install compatible versions of dependencies first
+try:
+    # Try normal install first
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'numpy<2.0', 'scipy<2.0'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'kokoro==0.7.16', 'soundfile'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except Exception as e:
+    logger.warning(f"Failed to install dependencies normally: {e}")
+    try:
+        # Try with --break-system-packages if needed
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--break-system-packages', 'numpy<2.0', 'scipy<2.0'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--break-system-packages', 'kokoro==0.7.16', 'soundfile'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e2:
+        logger.warning(f"Failed to install dependencies with --break-system-packages: {e2}")
+
+# Install espeak-ng (Linux only, will fail silently on non-Linux)
+try:
+    subprocess.run(['apt-get', '-qq', '-y', 'install', 'espeak-ng'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except Exception:
+    pass  # Ignore errors on non-Linux systems
+
+# Try to import TTS dependencies with proper error handling
+try:
+    # Import torch with warnings suppressed
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import torch
+        torch.set_warn_always(False)
+    
+    # Import kokoro with warnings suppressed
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from kokoro import KPipeline
+        import soundfile as sf
+    
+    TTS_AVAILABLE = True
+    TTS_ENGINE = "kokoro"
+    logger.info("Kokoro TTS libraries loaded successfully (high-quality engine)")
+except ImportError as e:
+    TTS_AVAILABLE = False
+    logger.warning(f"Kokoro TTS not available: {e}")
+    logger.warning("No TTS libraries available. Audio generation will be disabled.")
+except Exception as e:
+    TTS_AVAILABLE = False
+    logger.warning(f"Error loading Kokoro TTS: {e}. Audio generation will be disabled.")
+
+# Now import other dependencies
 from typing import Annotated
 from typing_extensions import TypedDict
 from langchain.chat_models import init_chat_model
@@ -17,10 +83,6 @@ from langchain_core.messages import SystemMessage
 import requests
 from bs4 import BeautifulSoup
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
 # Load environment variables from .env file
 load_dotenv()
 
@@ -28,6 +90,10 @@ load_dotenv()
 MODEL = os.getenv("CHATBOT_MODEL", "openai:gpt-4")
 API_KEY = os.getenv("CHATBOT_API_KEY", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+
+# TTS Configuration
+TTS_VOICE = os.getenv("TTS_VOICE", "af_heart")  # Default voice
+TTS_LANG_CODE = os.getenv("TTS_LANG_CODE", "b")  # Default language code
 
 # Validate required environment variables
 IS_DEV = os.getenv("ENV", "production").lower() == "dev"
@@ -62,8 +128,319 @@ else:
 os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 logger.info(f"Using model: {MODEL}")
+logger.info(f"TTS Available: {TTS_AVAILABLE}")
 # === END CONFIGURATION ===
 
+# === TTS UTILITIES ===
+
+# Global TTS pipeline cache (for Kokoro only)
+_TTS_PIPELINE_CACHE = {}
+
+def _strip_markdown_to_text(text: str) -> str:
+    """Convert common Markdown to plain text for clean TTS.
+    Removes emphasis markers, headings, code markers, links/ images markup, list bullets, blockquotes, and extra whitespace.
+    """
+    import re
+    if not text:
+        return ""
+    cleaned = text
+    # Triple backtick code blocks -> keep content
+    cleaned = re.sub(r"```(.*?)```", r"\1", cleaned, flags=re.DOTALL)
+    # Inline code
+    cleaned = re.sub(r"`([^`]*)`", r"\1", cleaned)
+    # Images ![alt](url) -> alt
+    cleaned = re.sub(r"!\[([^\]]*)\]\([^\)]+\)", r"\1", cleaned)
+    # Links [text](url) -> text
+    cleaned = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", cleaned)
+    # Bold/italic **text**, __text__, *text*, _text_
+    cleaned = re.sub(r"(\*\*|__)(.*?)\1", r"\2", cleaned)
+    cleaned = re.sub(r"(\*|_)(.*?)\1", r"\2", cleaned)
+    # Headings #### Title -> Title
+    cleaned = re.sub(r"^\s*#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
+    # Blockquotes > quote -> quote
+    cleaned = re.sub(r"^\s*>\s?", "", cleaned, flags=re.MULTILINE)
+    # Lists (-, *, +, 1.) -> strip markers
+    cleaned = re.sub(r"^\s*(?:[-*+]|\d+\.)\s+", "", cleaned, flags=re.MULTILINE)
+    # Horizontal rules
+    cleaned = re.sub(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$", "", cleaned, flags=re.MULTILINE)
+    # Remove any remaining HTML tags
+    cleaned = re.sub(r"<[^>]+>", "", cleaned)
+    # Collapse whitespace
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+def _split_text_for_tts(full_text: str, max_chars_per_chunk: int = 800) -> list:
+    """Split long text into sentence-aware chunks not exceeding max_chars_per_chunk.
+    Keeps punctuation boundaries where possible to avoid mid-sentence cuts.
+    """
+    import re
+    text = full_text.strip()
+    if len(text) <= max_chars_per_chunk:
+        return [text]
+    # Split on sentence enders while preserving delimiters
+    sentences = re.split(r"(?<=[\.!?])\s+", text)
+    chunks = []
+    current = []
+    current_len = 0
+    for sent in sentences:
+        s = sent.strip()
+        if not s:
+            continue
+        if current_len + len(s) + (1 if current else 0) <= max_chars_per_chunk:
+            current.append(s)
+            current_len += len(s) + (1 if current_len > 0 else 0)
+        else:
+            if current:
+                chunks.append(" ".join(current))
+            # If a single sentence is longer than max, hard-split it
+            if len(s) > max_chars_per_chunk:
+                for i in range(0, len(s), max_chars_per_chunk):
+                    part = s[i:i+max_chars_per_chunk]
+                    chunks.append(part)
+                current = []
+                current_len = 0
+            else:
+                current = [s]
+                current_len = len(s)
+    if current:
+        chunks.append(" ".join(current))
+    return chunks
+
+def get_tts_pipeline(lang_code: str = None):
+    """Get or create TTS pipeline with caching for better performance (Kokoro only)"""
+    global _TTS_PIPELINE_CACHE, TTS_ENGINE
+    
+    if TTS_ENGINE != "kokoro":
+        return None
+    
+    try:
+        # Import and use the proper Kokoro configuration
+        from kokoro_local_config import create_kokoro_pipeline
+        
+        lang_to_use = lang_code or TTS_LANG_CODE
+        cache_key = f"pipeline_{lang_to_use}"
+        
+        if cache_key not in _TTS_PIPELINE_CACHE:
+            logger.info(f"🔧 Initializing Kokoro TTS pipeline for language code: {lang_to_use}")
+            
+            # Create pipeline with local-first approach
+            try:
+                _TTS_PIPELINE_CACHE[cache_key] = create_kokoro_pipeline(lang_to_use, use_local_only=True)
+                if _TTS_PIPELINE_CACHE[cache_key]:
+                    logger.info("✅ Kokoro TTS pipeline initialized successfully")
+                else:
+                    logger.error("❌ Kokoro pipeline failed to initialize")
+                    return None
+            except Exception as e:
+                logger.error(f"Failed to initialize Kokoro pipeline: {e}")
+                return None
+        
+        return _TTS_PIPELINE_CACHE[cache_key]
+    except ImportError:
+        logger.warning("Kokoro configuration not available")
+        return None
+
+def generate_tts_audio(text: str, voice: str = None, lang_code: str = None) -> list:
+    """Generate TTS audio from text and return list of file paths"""
+    if not TTS_AVAILABLE:
+        return []
+    
+    try:
+        # Create output directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        output_dir = os.path.join(current_dir, 'audio_output')
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate full text without truncation (user requested full-length audio)
+        
+        # Generate unique filename with timestamp
+        import time
+        timestamp = int(time.time())
+        filename = f'response_{timestamp}.wav'
+        filepath = os.path.join(output_dir, filename)
+        
+        # Use Kokoro TTS only
+        if TTS_ENGINE == "kokoro":
+            result = _generate_kokoro_audio(text, voice, lang_code, filepath)
+            return result
+        else:
+            logger.error(f"Kokoro TTS not available. Engine: {TTS_ENGINE}")
+            return []
+            
+    except Exception as e:
+        logger.error(f"Error generating TTS audio: {e}")
+        return []
+
+def _generate_kokoro_audio(text: str, voice: str, lang_code: str, filepath: str) -> list:
+    """Generate audio using Kokoro TTS with improved long-text handling.
+    Synthesizes long inputs in sequential chunks and concatenates into a single WAV.
+    """
+    try:
+        # Use provided voice/lang_code or defaults
+        voice_to_use = voice or TTS_VOICE
+        lang_to_use = lang_code or TTS_LANG_CODE
+        
+        # Get cached pipeline
+        pipeline = get_tts_pipeline(lang_to_use)
+        if not pipeline:
+            logger.error("Kokoro pipeline not available")
+            return []
+        
+        # Sanitize markdown so audio doesn't read asterisks/hashtags
+        sanitized = _strip_markdown_to_text(text)
+        logger.info(f"🎵 Generating Kokoro TTS audio for {len(sanitized)} characters with voice '{voice_to_use}'...")
+        
+        import torch
+        torch.set_warn_always(False)
+        
+        import numpy as np
+        import soundfile as sf
+        
+        # Split text into chunks and synthesize sequentially
+        chunks = _split_text_for_tts(sanitized, max_chars_per_chunk=900)
+        logger.info(f"🧩 TTS will synthesize in {len(chunks)} chunk(s)")
+        all_segments = []
+        total_segments = 0
+        first_segment_logged = False
+        
+        for ci, chunk_text in enumerate(chunks, start=1):
+            logger.info(f"🗣️ Synthesizing chunk {ci}/{len(chunks)} ({len(chunk_text)} chars)")
+            generator = pipeline(chunk_text, voice=voice_to_use)
+            for i, (gs, ps, audio) in enumerate(generator):
+                all_segments.append(audio)
+                total_segments += 1
+                if not first_segment_logged:
+                    first_segment_logged = True
+                    logger.info("✅ Model loaded, processing audio segments...")
+                if total_segments % 5 == 0:
+                    logger.info(f"📊 TTS progress: {total_segments} segments accumulated")
+        
+        if not all_segments:
+            logger.warning("No audio segments generated")
+            return []
+        
+        concatenated_audio = np.concatenate(all_segments)
+        sf.write(filepath, concatenated_audio, 24000)
+        logger.info(f"🎉 Kokoro TTS audio saved: {filepath}")
+        
+        _cleanup_old_audio_files()
+        return [filepath]
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating Kokoro TTS audio: {e}")
+        return []
+
+# def _generate_coqui_audio(text: str, filepath: str, voice: str = None, lang_code: str = None) -> list:
+#     """Generate audio using Coqui TTS (high-quality, reliable engine)"""
+#     try:
+#         from coqui_tts_config import create_coqui_tts, generate_coqui_audio
+        
+#         logger.info(f"🎵 Generating Coqui TTS audio for {len(text)} characters...")
+        
+#         # Create TTS instance
+#         tts = create_coqui_tts()
+#         if not tts:
+#             logger.error("❌ Failed to create Coqui TTS instance")
+#             return []
+        
+#         # Use provided voice or default
+#         voice_to_use = voice or TTS_VOICE
+#         lang_to_use = lang_code or TTS_LANG_CODE
+        
+#         # Generate audio
+#         result = generate_coqui_audio(tts, text, filepath, voice_to_use, lang_to_use)
+        
+#         if result:
+#             logger.info(f"✅ Coqui TTS audio saved: {filepath}")
+#             _cleanup_old_audio_files()
+#             return [filepath]
+#         else:
+#             logger.error("❌ Coqui TTS audio generation failed")
+#             return []
+        
+#     except Exception as e:
+#         logger.error(f"❌ Error generating Coqui TTS audio: {e}")
+#         return []
+
+# def _generate_pyttsx3_audio(text: str, filepath: str) -> list:
+#     """Generate audio using PyTTSx3 with female voice and optimized settings"""
+#     try:
+#         import pyttsx3
+        
+#         logger.info(f"🎵 Generating PyTTSx3 audio for {len(text)} characters...")
+        
+#         # Initialize the TTS engine
+#         engine = pyttsx3.init()
+        
+#         # Get available voices
+#         voices = engine.getProperty('voices')
+        
+#         # Find and set a female voice (prefer high-quality female voices like Kokoro)
+#         female_voice = None
+#         preferred_female_voices = ['samantha', 'victoria', 'karen', 'alice', 'fiona']
+        
+#         for voice in voices:
+#             voice_name = voice.name.lower()
+#             voice_id = voice.id.lower()
+            
+#             # Look for preferred female voices first
+#             for preferred in preferred_female_voices:
+#                 if preferred in voice_name or preferred in voice_id:
+#                     female_voice = voice
+#                     break
+            
+#             if female_voice:
+#                 break
+            
+#             # Fallback to any female voice
+#             if any(indicator in voice_name or indicator in voice_id for indicator in 
+#                    ['female', 'woman', 'girl']):
+#                 female_voice = voice
+#                 break
+        
+#         # Set voice (female if found, otherwise first available)
+#         if female_voice:
+#             engine.setProperty('voice', female_voice.id)
+#             logger.info(f"🎭 Using female voice: {female_voice.name}")
+#         elif voices:
+#             engine.setProperty('voice', voices[0].id)
+#             logger.info(f"🎭 Using voice: {voices[0].name}")
+        
+#         # Optimize settings for better quality and speed
+#         engine.setProperty('rate', 180)      # Faster speech (was 150)
+#         engine.setProperty('volume', 0.95)   # Higher volume for clarity
+#         engine.setProperty('pitch', 1.1)     # Slightly higher pitch for female-like sound
+        
+#         # Save to file
+#         engine.save_to_file(text, filepath)
+#         engine.runAndWait()
+        
+#         logger.info(f"✅ PyTTSx3 audio saved: {filepath}")
+#         _cleanup_old_audio_files()
+#         return [filepath]
+        
+#     except Exception as e:
+#         logger.error(f"❌ Error generating PyTTSx3 audio: {e}")
+#         return []
+
+def _cleanup_old_audio_files():
+    """Clean up old audio files (keep only last 5 for better performance)"""
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        output_dir = os.path.join(current_dir, 'audio_output')
+        
+        audio_files = [f for f in os.listdir(output_dir) if f.startswith('response_') and f.endswith('.wav')]
+        audio_files.sort(key=lambda x: os.path.getctime(os.path.join(output_dir, x)), reverse=True)
+        
+        # Keep only the 5 most recent files (reduced from 10)
+        for old_file in audio_files[5:]:
+            old_filepath = os.path.join(output_dir, old_file)
+            os.remove(old_filepath)
+            logger.info(f"Cleaned up old audio file: {old_file}")
+    except Exception as e:
+        logger.warning(f"Could not clean up old audio files: {e}")
+
+# === END TTS UTILITIES ===
 
 
 # === STATE ===
@@ -186,6 +563,29 @@ def generate_study_plan(subject: str) -> str:
     return response.content
 
 @tool
+def generate_audio_response(text: str, voice: str = None, lang_code: str = None) -> str:
+    """Generate audio from text using TTS (Text-to-Speech)"""
+    if not TTS_AVAILABLE:
+        return "TTS is not available. Please install kokoro and soundfile libraries."
+    
+    audio_files = generate_tts_audio(text, voice, lang_code)
+    
+    if audio_files:
+        # Prefer returning a relative path Streamlit can render
+        try:
+            import os
+            rel_paths = []
+            for p in audio_files:
+                base = os.path.basename(p)
+                rel_paths.append(f"audio_output/{base}")
+            primary = rel_paths[0]
+            return f"Audio generated successfully! File: {primary}"
+        except Exception:
+            return f"Audio generated successfully! Files saved: {', '.join(audio_files)}"
+    else:
+        return "No audio was generated from the text."
+
+@tool
 def browse_web_page(url: str) -> str:
     """Browses a web page and returns its text content.
 
@@ -248,7 +648,8 @@ class ConversationalAgent:
             schedule_content,
             generate_literature_review,
             generate_research_methodology,
-            generate_study_plan
+            generate_study_plan,
+            generate_audio_response
         ]
 
         # Initialize LLM with tools
@@ -271,7 +672,8 @@ class ConversationalAgent:
             "7. 'generate_literature_review' - create comprehensive literature reviews\n"
             "8. 'generate_research_methodology' - suggest research methodologies\n"
             "9. 'generate_study_plan' - create detailed study plans\n"
-            "10. 'human_assistance' - request human help\n\n"
+            "10. 'generate_audio_response' - convert text responses to audio using TTS\n"
+            "11. 'human_assistance' - request human help\n\n"
             "For academic research: Always prioritize peer-reviewed sources, academic databases, and scholarly content.\n"
             "For study assistance: Provide comprehensive explanations, examples, and learning strategies.\n\n"
             "- If the user provides a URL to an academic paper or research article, use the 'browse_web_page' tool to analyze it.\n"
@@ -283,6 +685,7 @@ class ConversationalAgent:
             "- For study help, provide detailed explanations with examples and practice problems.\n"
             "- Always cite sources when possible and suggest additional reading materials.\n"
             "- Focus on academic rigor, critical thinking, and evidence-based responses.\n"
+            "- When users ask for audio versions of responses or say 'speak this', 'read aloud', or 'audio', use the 'generate_audio_response' tool.\n"
             "- If the user asks for 'expert guidance', 'human help', or explicitly asks you to 'request assistance', "
             "you MUST use the 'human_assistance' tool. Do not try to answer these queries yourself."
         )
