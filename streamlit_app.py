@@ -1,6 +1,17 @@
 import streamlit as st
 import os
-from basic_chatbot import ConversationalAgent, TTS_AVAILABLE, TTS_ENGINE, generate_tts_audio
+from basic_chatbot import ConversationalAgent
+
+# Import ConversationalAgent first, as it's less likely to fail
+from basic_chatbot import ConversationalAgent
+
+# Conditionally import TTS-related components
+try:
+    from basic_chatbot import TTS_AVAILABLE, generate_tts_audio
+except ImportError as e:
+    st.warning(f"TTS components unavailable: {e}. Audio features will be disabled.")
+    TTS_AVAILABLE = False
+    generate_tts_audio = None 
 
 # Initialize chatbot
 if 'agent' not in st.session_state:
