@@ -23,24 +23,24 @@ os.environ['PYTORCH_WARN_ONCE'] = '0'
 warnings.filterwarnings("ignore")
 
 # Install compatible versions of dependencies first
-# try:
-#     # Try normal install first
-#     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'numpy<2.0', 'scipy<2.0'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-#     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'kokoro==0.7.16', 'soundfile'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-# except Exception as e:
-#     logger.warning(f"Failed to install dependencies normally: {e}")
-#     try:
-#         # Try with --break-system-packages if needed
-#         subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--break-system-packages', 'numpy<2.0', 'scipy<2.0'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-#         subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--break-system-packages', 'kokoro==0.7.16', 'soundfile'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-#     except Exception as e2:
-#         logger.warning(f"Failed to install dependencies with --break-system-packages: {e2}")
+try:
+    # Try normal install first
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'numpy<2.0', 'scipy<2.0'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'kokoro==0.7.16', 'soundfile'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except Exception as e:
+    logger.warning(f"Failed to install dependencies normally: {e}")
+    try:
+        # Try with --break-system-packages if needed
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--break-system-packages', 'numpy<2.0', 'scipy<2.0'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--break-system-packages', 'kokoro==0.7.16', 'soundfile'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e2:
+        logger.warning(f"Failed to install dependencies with --break-system-packages: {e2}")
 
-# # Install espeak-ng (Linux only, will fail silently on non-Linux)
-# try:
-#     subprocess.run(['apt-get', '-qq', '-y', 'install', 'espeak-ng'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-# except Exception:
-#     pass  # Ignore errors on non-Linux systems
+# Install espeak-ng (Linux only, will fail silently on non-Linux)
+try:
+    subprocess.run(['apt-get', '-qq', '-y', 'install', 'espeak-ng'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except Exception:
+    pass  # Ignore errors on non-Linux systems
 
 # Try to import TTS dependencies with proper error handling
 try:
