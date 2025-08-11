@@ -9,6 +9,20 @@ from PIL.TiffImagePlugin import TRANSFERFUNCTION
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+try:
+    import spacy
+    spacy.load('en_core_web_sm')
+    logger.info("spaCy and en_core_web_sm already installed")
+except ImportError:
+    logger.info("Installing spacy==3.8.0 and en_core_web_sm")
+    try:
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'spacy==3.8.0'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run([sys.executable, '-m', 'spacy', 'download', 'en_core_web_sm'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        logger.info("Successfully installed spacy==3.8.0 and en_core_web_sm")
+    except Exception as e:
+        logger.warning(f"Failed to install spacy and en_core_web_sm: {e}")
+
+
 # Configure PyTorch to reduce warnings
 import warnings
 import os
