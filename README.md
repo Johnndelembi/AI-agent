@@ -1,4 +1,4 @@
-# AI Content Assistant – Conversational Chatbot
+# AI Research & Study Assistant – Conversational Chatbot
 
 A modern, production-ready conversational AI assistant for content creation, research, and social media management.  
 Built with [LangGraph](https://github.com/langchain-ai/langgraph), [LangChain](https://github.com/langchain-ai/langchain), [Streamlit](https://streamlit.io/), and Google Gemini.  
