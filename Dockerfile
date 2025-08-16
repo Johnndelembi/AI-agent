@@ -26,6 +26,9 @@ RUN python -m spacy download en_core_web_sm
 # Copy application code
 COPY . .
 
+# Pre-download Kokoro models
+RUN python download_kokoro_models.py
+
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app

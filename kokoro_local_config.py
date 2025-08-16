@@ -17,6 +17,8 @@ def configure_kokoro_environment():
     os.environ['PYTORCH_DISABLE_WARNINGS'] = '1'
     os.environ['TORCH_WARN_ONCE'] = '0'
     os.environ['PYTORCH_WARN_ONCE'] = '0'
+    # Set Kokoro repo ID to suppress warning
+    os.environ['KOKORO_REPO_ID'] = 'hexgrad/Kokoro-82M'
     
     # Suppress all warnings at the system level
     warnings.filterwarnings("ignore")
