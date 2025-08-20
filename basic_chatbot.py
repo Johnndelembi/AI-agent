@@ -22,26 +22,6 @@ os.environ['PYTORCH_WARN_ONCE'] = '0'
 # Suppress all warnings at the system level
 warnings.filterwarnings("ignore")
 
-# Install compatible versions of dependencies first
-# try:
-#     # Try normal install first
-#     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'numpy<2.0', 'scipy<2.0'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-#     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'kokoro==0.7.16', 'soundfile'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-# except Exception as e:
-#     logger.warning(f"Failed to install dependencies normally: {e}")
-#     try:
-#         # Try with --break-system-packages if needed
-#         subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--break-system-packages', 'numpy<2.0', 'scipy<2.0'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-#         subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--break-system-packages', 'kokoro==0.7.16', 'soundfile'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-#     except Exception as e2:
-#         logger.warning(f"Failed to install dependencies with --break-system-packages: {e2}")
-
-# # Install espeak-ng (Linux only, will fail silently on non-Linux)
-# try:
-#     subprocess.run(['apt-get', '-qq', '-y', 'install', 'espeak-ng'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-# except Exception:
-#     pass  # Ignore errors on non-Linux systems
-
 # Try to import TTS dependencies with proper error handling
 try:
     # Import torch with warnings suppressed
@@ -70,7 +50,9 @@ except Exception as e:
 # Now import other dependencies
 from typing import Annotated
 from typing_extensions import TypedDict
-from langchain.chat_models import init_chat_model
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_tavily import TavilySearch
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
@@ -84,14 +66,36 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
 import requests
 from bs4 import BeautifulSoup
+import feedparser
+import re
+from datetime import datetime
 
 # Load environment variables from .env file
 load_dotenv()
+
+
+
+
+
+
+
 
 # === CONFIGURATION ===
 MODEL = os.getenv("CHATBOT_MODEL", "openai:gpt-4")
 API_KEY = os.getenv("CHATBOT_API_KEY", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+
+def init_chat_model(model_name: str, model_provider: str = "openai"):
+    """Initialize chat model based on provider"""
+    if model_provider == "openai":
+        return ChatOpenAI(model=model_name.replace("openai:", ""))
+    elif model_provider == "anthropic":
+        return ChatAnthropic(model=model_name.replace("anthropic:", ""))
+    elif model_provider == "google_genai":
+        return ChatGoogleGenerativeAI(model=model_name.replace("google:", ""))
+    else:
+        # Default to OpenAI
+        return ChatOpenAI(model=model_name.replace("openai:", ""))
 
 # TTS Configuration
 TTS_VOICE = os.getenv("TTS_VOICE", "af_heart")  # Default voice
@@ -133,8 +137,19 @@ logger.info(f"Using model: {MODEL}")
 logger.info(f"TTS Available: {TTS_AVAILABLE}")
 # === END CONFIGURATION ===
 
-# === TTS UTILITIES ===
 
+
+
+
+
+
+
+
+
+
+
+
+# === START TTS UTILITIES ===
 # Global TTS pipeline cache (for Kokoro only)
 _TTS_PIPELINE_CACHE = {}
 
@@ -332,99 +347,6 @@ def _generate_kokoro_audio(text: str, voice: str, lang_code: str, filepath: str)
         logger.error(f"❌ Error generating Kokoro TTS audio: {e}")
         return []
 
-# def _generate_coqui_audio(text: str, filepath: str, voice: str = None, lang_code: str = None) -> list:
-#     """Generate audio using Coqui TTS (high-quality, reliable engine)"""
-#     try:
-#         from coqui_tts_config import create_coqui_tts, generate_coqui_audio
-        
-#         logger.info(f"🎵 Generating Coqui TTS audio for {len(text)} characters...")
-        
-#         # Create TTS instance
-#         tts = create_coqui_tts()
-#         if not tts:
-#             logger.error("❌ Failed to create Coqui TTS instance")
-#             return []
-        
-#         # Use provided voice or default
-#         voice_to_use = voice or TTS_VOICE
-#         lang_to_use = lang_code or TTS_LANG_CODE
-        
-#         # Generate audio
-#         result = generate_coqui_audio(tts, text, filepath, voice_to_use, lang_to_use)
-        
-#         if result:
-#             logger.info(f"✅ Coqui TTS audio saved: {filepath}")
-#             _cleanup_old_audio_files()
-#             return [filepath]
-#         else:
-#             logger.error("❌ Coqui TTS audio generation failed")
-#             return []
-        
-#     except Exception as e:
-#         logger.error(f"❌ Error generating Coqui TTS audio: {e}")
-#         return []
-
-# def _generate_pyttsx3_audio(text: str, filepath: str) -> list:
-#     """Generate audio using PyTTSx3 with female voice and optimized settings"""
-#     try:
-#         import pyttsx3
-        
-#         logger.info(f"🎵 Generating PyTTSx3 audio for {len(text)} characters...")
-        
-#         # Initialize the TTS engine
-#         engine = pyttsx3.init()
-        
-#         # Get available voices
-#         voices = engine.getProperty('voices')
-        
-#         # Find and set a female voice (prefer high-quality female voices like Kokoro)
-#         female_voice = None
-#         preferred_female_voices = ['samantha', 'victoria', 'karen', 'alice', 'fiona']
-        
-#         for voice in voices:
-#             voice_name = voice.name.lower()
-#             voice_id = voice.id.lower()
-            
-#             # Look for preferred female voices first
-#             for preferred in preferred_female_voices:
-#                 if preferred in voice_name or preferred in voice_id:
-#                     female_voice = voice
-#                     break
-            
-#             if female_voice:
-#                 break
-            
-#             # Fallback to any female voice
-#             if any(indicator in voice_name or indicator in voice_id for indicator in 
-#                    ['female', 'woman', 'girl']):
-#                 female_voice = voice
-#                 break
-        
-#         # Set voice (female if found, otherwise first available)
-#         if female_voice:
-#             engine.setProperty('voice', female_voice.id)
-#             logger.info(f"🎭 Using female voice: {female_voice.name}")
-#         elif voices:
-#             engine.setProperty('voice', voices[0].id)
-#             logger.info(f"🎭 Using voice: {voices[0].name}")
-        
-#         # Optimize settings for better quality and speed
-#         engine.setProperty('rate', 180)      # Faster speech (was 150)
-#         engine.setProperty('volume', 0.95)   # Higher volume for clarity
-#         engine.setProperty('pitch', 1.1)     # Slightly higher pitch for female-like sound
-        
-#         # Save to file
-#         engine.save_to_file(text, filepath)
-#         engine.runAndWait()
-        
-#         logger.info(f"✅ PyTTSx3 audio saved: {filepath}")
-#         _cleanup_old_audio_files()
-#         return [filepath]
-        
-#     except Exception as e:
-#         logger.error(f"❌ Error generating PyTTSx3 audio: {e}")
-#         return []
-
 def _cleanup_old_audio_files():
     """Clean up old audio files (keep only last 5 for better performance)"""
     try:
@@ -451,8 +373,10 @@ class State(TypedDict):
     messages: Annotated[list, add_messages]
 
 
-# === TOOLS ===
 
+
+
+# === TOOLS ===
 @tool
 def human_assistance(query: str) -> str:
     """Request assistance from a human when the AI needs help with complex or sensitive queries."""
@@ -460,64 +384,19 @@ def human_assistance(query: str) -> str:
     return interrupt({"query": query})
 
 @tool
-def generate_linkedin_post(topic: str, style: str = "academic") -> str:
-    """Generate an academic LinkedIn post for professional networking and scholarly discussion"""
-    prompt = f"""
-    Create an academic LinkedIn post about {topic} in a {style} style.
-    Structure: Research insight → Key findings → Academic implications → Call for collaboration
-    Focus on scholarly discussion, research implications, and academic networking.
-    Keep it under 300 words, use relevant academic hashtags.
-    """
-    llm = init_chat_model(MODEL, model_provider=model_provider)
-    response = llm.invoke(prompt)
-    return response.content
-
-@tool
-def generate_twitter_thread(topic: str, num_tweets: int = 5) -> str:
-    """Generate an educational Twitter thread for academic discussion and knowledge sharing"""
-    prompt = f"""
-    Create a {num_tweets}-tweet educational thread about {topic}.
-    Structure: Research question → Key concepts → Evidence/examples → Implications → Further reading
-    Focus on educational value, academic rigor, and knowledge sharing.
-    Each tweet max 280 chars. Number them 1/{num_tweets}, 2/{num_tweets}, etc.
-    Include relevant academic hashtags and citations where appropriate.
-    """
-    llm = init_chat_model(MODEL, model_provider=model_provider)
-    response = llm.invoke(prompt)
-    return response.content
-
-@tool
-def post_to_linkedin(content: str) -> str:
-    """Stub: Post content to LinkedIn via API (not implemented)."""
-    try:
-        LINKEDIN_CLIENT_ID = os.getenv('LINKEDIN_CLIENT_ID')
-        LINKEDIN_CLIENT_SECRET = os.getenv('LINKEDIN_CLIENT_SECRET')
-        if not LINKEDIN_CLIENT_ID or not LINKEDIN_CLIENT_SECRET:
-            return "LinkedIn API credentials not configured. Please set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET in your .env file."
-        # NOTE: Actual LinkedIn API posting is not implemented in this MVP.
-        return f"Successfully posted to LinkedIn:\n{content}"
-    except Exception as e:
-        return f"Error posting to LinkedIn: {str(e)}"
-
-@tool
-def schedule_content(content: str, platform: str, datetime: str) -> str:
-    """Schedule academic content for later posting"""
-    return f"Academic content scheduled for {platform} at {datetime}:\n{content}"
-
-@tool
 def generate_literature_review(topic: str) -> str:
-    """Generate a comprehensive literature review on a research topic"""
+    """Generate a comprehensive literature review on any topic"""
     prompt = f"""
     Create a comprehensive literature review on {topic}.
     Include:
     1. Background and context
     2. Key theories and frameworks
-    3. Recent research findings
-    4. Research gaps and opportunities
+    3. Recent findings and developments
+    4. Current gaps and opportunities
     5. Methodological approaches
-    6. Future research directions
+    6. Future directions and trends
     
-    Structure this as an academic literature review with proper citations and scholarly tone.
+    Structure this as a thorough review with proper citations and clear explanations.
     """
     llm = init_chat_model(MODEL, model_provider=model_provider)
     response = llm.invoke(prompt)
@@ -545,7 +424,7 @@ def generate_research_methodology(topic: str) -> str:
 
 @tool
 def generate_study_plan(subject: str) -> str:
-    """Create a comprehensive study plan for academic subjects"""
+    """Create a comprehensive study plan for any subject"""
     prompt = f"""
     Create a detailed study plan for {subject}.
     Include:
@@ -589,17 +468,298 @@ def generate_audio_response(text: str, voice: str = None, lang_code: str = None)
 
 @tool
 def browse_web_page(url: str) -> str:
-    """Browses a web page and returns its text content.
+    """Browses a web page or social media post and returns its content.
 
     Args:
-        url: The URL of the web page to browse.
+        url: The URL of the web page or social media post to browse.
 
     Returns:
-        The text content of the web page, or an error message if fetching fails.
+        The text content of the page/post, or an error message if fetching fails.
     """
     if not url or not url.startswith(('http://', 'https://')):
         return "Invalid URL. Please provide a full and valid URL starting with http:// or https://."
 
+    try:
+        # Detect platform and handle accordingly
+        platform = _detect_platform(url)
+        
+        if platform == "instagram":
+            return _browse_instagram_post(url)
+        elif platform == "linkedin":
+            return _browse_linkedin_post(url)
+        elif platform == "twitter" or platform == "x":
+            return _browse_twitter_post(url)
+        else:
+            return _browse_regular_webpage(url)
+            
+    except Exception as e:
+        return f"An unexpected error occurred: {e}"
+
+def _detect_platform(url: str) -> str:
+    """Detect the platform from the URL"""
+    url_lower = url.lower()
+    
+    if 'instagram.com' in url_lower:
+        return "instagram"
+    elif 'linkedin.com' in url_lower:
+        return "linkedin"
+    elif 'twitter.com' in url_lower or 'x.com' in url_lower:
+        return "twitter"
+    else:
+        return "webpage"
+
+def _browse_instagram_post(url: str) -> str:
+    """Browse Instagram post content"""
+    try:
+        # Instagram requires special handling due to dynamic content
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+        
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Extract Instagram post content
+        content = []
+        
+        # Try to find post description
+        description_selectors = [
+            'meta[property="og:description"]',
+            'meta[name="description"]',
+            'div[data-testid="post-caption"]',
+            'article div[dir="auto"]',
+            '.caption',
+            '[data-testid="post-caption"]'
+        ]
+        
+        for selector in description_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                text = element.get('content') or element.get_text(strip=True)
+                if text and len(text) > 10:
+                    content.append(f"📝 Post Description: {text}")
+                    break
+        
+        # Try to find username
+        username_selectors = [
+            'meta[property="og:title"]',
+            'a[href*="/p/"]',
+            'header a',
+            '.username'
+        ]
+        
+        for selector in username_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                text = element.get('content') or element.get_text(strip=True)
+                if text and '@' in text:
+                    content.append(f"👤 Username: {text}")
+                    break
+        
+        # Try to find engagement metrics
+        engagement_selectors = [
+            '[data-testid="like-count"]',
+            '[data-testid="comment-count"]',
+            '.likes',
+            '.comments'
+        ]
+        
+        for selector in engagement_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                text = element.get_text(strip=True)
+                if text and any(word in text.lower() for word in ['like', 'comment', 'view']):
+                    content.append(f"📊 Engagement: {text}")
+                    break
+        
+        if content:
+            result = f"📱 Instagram Post Analysis:\n\n"
+            result += "\n".join(content)
+            result += f"\n\n🔗 Source: {url}"
+            return result
+        else:
+            return f"Could not extract Instagram post content. The post might be private or require authentication.\n\n🔗 URL: {url}"
+            
+    except Exception as e:
+        return f"Error browsing Instagram post: {e}"
+
+def _browse_linkedin_post(url: str) -> str:
+    """Browse LinkedIn post content"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+        
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Extract LinkedIn post content
+        content = []
+        
+        # Try to find post content
+        content_selectors = [
+            'meta[property="og:description"]',
+            'meta[name="description"]',
+            '.feed-shared-text',
+            '.feed-shared-update-v2__description',
+            '.share-text',
+            '[data-testid="post-content"]'
+        ]
+        
+        for selector in content_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                text = element.get('content') or element.get_text(strip=True)
+                if text and len(text) > 20:
+                    content.append(f"📝 Post Content: {text}")
+                    break
+        
+        # Try to find author name
+        author_selectors = [
+            'meta[property="og:title"]',
+            '.feed-shared-actor__name',
+            '.post-meta__headline',
+            '.author-name'
+        ]
+        
+        for selector in author_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                text = element.get('content') or element.get_text(strip=True)
+                if text and len(text) > 2:
+                    content.append(f"👤 Author: {text}")
+                    break
+        
+        # Try to find engagement metrics
+        engagement_selectors = [
+            '.social-details-social-counts',
+            '.feed-shared-social-counts',
+            '.reactions-count',
+            '.comments-count'
+        ]
+        
+        for selector in engagement_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                text = element.get_text(strip=True)
+                if text and any(word in text.lower() for word in ['like', 'comment', 'share', 'reaction']):
+                    content.append(f"📊 Engagement: {text}")
+                    break
+        
+        if content:
+            result = f"💼 LinkedIn Post Analysis:\n\n"
+            result += "\n".join(content)
+            result += f"\n\n🔗 Source: {url}"
+            return result
+        else:
+            return f"Could not extract LinkedIn post content. The post might be private or require authentication.\n\n🔗 URL: {url}"
+            
+    except Exception as e:
+        return f"Error browsing LinkedIn post: {e}"
+
+def _browse_twitter_post(url: str) -> str:
+    """Browse Twitter/X post content"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+        
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Extract Twitter/X post content
+        content = []
+        
+        # Try to find tweet content
+        content_selectors = [
+            'meta[property="og:description"]',
+            'meta[name="description"]',
+            '[data-testid="tweetText"]',
+            '.tweet-text',
+            '.js-tweet-text',
+            'article div[lang]'
+        ]
+        
+        for selector in content_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                text = element.get('content') or element.get_text(strip=True)
+                if text and len(text) > 10:
+                    content.append(f"🐦 Tweet Content: {text}")
+                    break
+        
+        # Try to find username
+        username_selectors = [
+            'meta[property="og:title"]',
+            '[data-testid="User-Name"]',
+            '.username',
+            '.screen-name'
+        ]
+        
+        for selector in username_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                text = element.get('content') or element.get_text(strip=True)
+                if text and '@' in text:
+                    content.append(f"👤 Username: {text}")
+                    break
+        
+        # Try to find engagement metrics
+        engagement_selectors = [
+            '[data-testid="like"]',
+            '[data-testid="retweet"]',
+            '[data-testid="reply"]',
+            '.tweet-stats'
+        ]
+        
+        engagement_metrics = []
+        for selector in engagement_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                text = element.get_text(strip=True)
+                if text and any(word in text.lower() for word in ['like', 'retweet', 'reply', 'view']):
+                    engagement_metrics.append(text)
+        
+        if engagement_metrics:
+            content.append(f"📊 Engagement: {', '.join(engagement_metrics)}")
+        
+        if content:
+            result = f"🐦 Twitter/X Post Analysis:\n\n"
+            result += "\n".join(content)
+            result += f"\n\n🔗 Source: {url}"
+            return result
+        else:
+            return f"Could not extract Twitter/X post content. The post might be private or require authentication.\n\n🔗 URL: {url}"
+            
+    except Exception as e:
+        return f"Error browsing Twitter/X post: {e}"
+
+def _browse_regular_webpage(url: str) -> str:
+    """Browse regular web page content"""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -624,7 +784,519 @@ def browse_web_page(url: str) -> str:
     except Exception as e:
         return f"An unexpected error occurred: {e}"
 
+@tool
+def search_news(topic: str = "latest news", location: str = "global", age_group: str = "general", max_results: int = 5, time_period: str = "recent") -> str:
+    """Search for news, headlines, and current events using Tavily search. Use this tool for ANY news-related queries including AI trends, technology news, business news, world news, etc.
+    
+    Args:
+        topic: News topic to search for (e.g., "AI trends", "technology news", "latest news", "business news")
+        location: Geographic location for news (default: "global")
+        age_group: Target age group ("general", "youth", "senior", "professional")
+        max_results: Maximum number of news items to return (default: 5)
+        time_period: Time period for news ("recent", "today", "week", "month")
+    """
+    try:
+        from datetime import datetime, timedelta
+        
+        # Create optimized search query based on parameters
+        search_query = _build_news_search_query(topic, location, age_group, time_period)
+        
+        # Use Tavily search to get news
+        tavily_search = TavilySearch(max_results=max_results * 2)  # Get more results to account for filtering
+        search_results = tavily_search.invoke(search_query)
+        
+        if not search_results or not hasattr(search_results, 'content'):
+            return f"No news found for '{topic}' in {location}."
+        
+        # Extract URLs and headlines from search results
+        news_items = _extract_news_from_search_results(search_results.content, max_results)
+        
+        if not news_items:
+            return f"No relevant news found for '{topic}' in {location}."
+        
+        # Fetch and summarize each article
+        summarized_news = _fetch_and_summarize_articles(news_items, topic, location, age_group)
+        
+        return summarized_news
+        
+    except Exception as e:
+        logger.error(f"Error in search_news: {e}")
+        return f"Error searching for news: {e}"
+
+def _build_news_search_query(topic: str, location: str, age_group: str, time_period: str) -> str:
+    """Build an optimized search query for news based on parameters"""
+    
+    # Base query
+    query_parts = [topic]
+    
+    # Add location context
+    if location.lower() != "global":
+        query_parts.append(f"in {location}")
+    
+    # Add time period context
+    time_contexts = {
+        "recent": "latest breaking news",
+        "today": "today's news",
+        "week": "this week's news",
+        "month": "this month's news"
+    }
+    if time_period in time_contexts:
+        query_parts.append(time_contexts[time_period])
+    
+    # Add age-appropriate context
+    age_contexts = {
+        "youth": "trending viral news",
+        "senior": "important developments",
+        "professional": "business and industry news",
+        "general": "mainstream news"
+    }
+    if age_group in age_contexts:
+        query_parts.append(age_contexts[age_group])
+    
+    # Add news-specific terms
+    query_parts.extend(["news", "headlines", "latest updates"])
+    
+    return " ".join(query_parts)
+
+def _extract_news_from_search_results(search_content: str, max_results: int) -> list:
+    """Extract news URLs and headlines from Tavily search results"""
+    try:
+        news_items = []
+        lines = search_content.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if line and len(line) > 20:
+                # Look for lines that might contain URLs
+                if 'http' in line and any(domain in line.lower() for domain in ['news', 'bbc', 'cnn', 'reuters', 'ap', 'guardian', 'nytimes', 'washingtonpost', 'techcrunch', 'theverge', 'arstechnica', 'wired', 'mit', 'citizen', 'dailynews', 'ippmedia', 'mwananchi']):
+                    # Extract URL and title
+                    url_match = re.search(r'https?://[^\s]+', line)
+                    if url_match:
+                        url = url_match.group(0)
+                        # Clean up the title (remove URL and extra formatting)
+                        title = line.replace(url, '').replace('•', '').replace('-', '').strip()
+                        if title and len(title) > 10:
+                            news_items.append({
+                                'url': url,
+                                'title': title,
+                                'source': _extract_source_from_url(url)
+                            })
+        
+        return news_items[:max_results]
+        
+    except Exception as e:
+        logger.error(f"Error extracting news from search results: {e}")
+        return []
+
+def _extract_source_from_url(url: str) -> str:
+    """Extract source name from URL"""
+    try:
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc
+        # Remove www. and common TLDs
+        source = domain.replace('www.', '').split('.')[0]
+        return source.title()
+    except:
+        return "Unknown Source"
+
+def _fetch_and_summarize_articles(news_items: list, topic: str, location: str, age_group: str) -> str:
+    """Fetch full articles and generate summaries"""
+    try:
+        llm = init_chat_model(MODEL, model_provider=model_provider)
+        summarized_articles = []
+        
+        for i, item in enumerate(news_items, 1):
+            try:
+                logger.info(f"Fetching article {i}/{len(news_items)}: {item['title'][:50]}...")
+                
+                # Fetch the full article content
+                article_content = browse_web_page.invoke({'url': item['url']})
+                
+                if article_content and not article_content.startswith("Error") and len(article_content) > 100:
+                    # Generate summary using LLM
+                    summary = _generate_article_summary(llm, article_content, item['title'], age_group)
+                    
+                    summarized_articles.append({
+                        'title': item['title'],
+                        'summary': summary,
+                        'url': item['url'],
+                        'source': item['source']
+                    })
+                else:
+                    # If we can't fetch the article, just include the headline
+                    summarized_articles.append({
+                        'title': item['title'],
+                        'summary': "Article content could not be fetched. Please visit the source for full details.",
+                        'url': item['url'],
+                        'source': item['source']
+                    })
+                
+            except Exception as e:
+                logger.error(f"Error processing article {i}: {e}")
+                continue
+        
+        # Format the results
+        return _format_summarized_news(summarized_articles, topic, location, age_group)
+        
+    except Exception as e:
+        logger.error(f"Error fetching and summarizing articles: {e}")
+        return f"Error processing news articles: {e}"
+
+def _generate_article_summary(llm, article_content: str, title: str, age_group: str) -> str:
+    """Generate a concise summary of the article content"""
+    try:
+        # Truncate content if too long to avoid token limits
+        max_content_length = 3000
+        if len(article_content) > max_content_length:
+            article_content = article_content[:max_content_length] + "..."
+        
+        # Create age-appropriate summary prompt
+        age_context = {
+            "youth": "Write a concise, engaging summary suitable for young adults",
+            "senior": "Write a clear, detailed summary with important context",
+            "professional": "Write a professional summary focusing on key facts and implications",
+            "general": "Write a clear, balanced summary for general audience"
+        }
+        
+        prompt = f"""
+        {age_context.get(age_group, age_context['general'])} for this news article:
+        
+        Title: {title}
+        
+        Article Content:
+        {article_content}
+        
+        Provide a 2-3 sentence summary that captures the main points and key details.
+        Focus on the most important information and maintain accuracy.
+        """
+        
+        response = llm.invoke(prompt)
+        return response.content.strip()
+        
+    except Exception as e:
+        logger.error(f"Error generating summary: {e}")
+        return "Summary could not be generated."
+
+def _format_summarized_news(summarized_articles: list, topic: str, location: str, age_group: str) -> str:
+    """Format the summarized news articles with proper structure"""
+    try:
+        location_emoji = _get_location_emoji(location)
+        topic_emoji = _get_topic_emoji(topic)
+        
+        result = f"{location_emoji} {topic_emoji} News Summary for {location.title()}:\n\n"
+        
+        for i, article in enumerate(summarized_articles, 1):
+            result += f"📰 **{i}. {article['title']}**\n"
+            result += f"📝 {article['summary']}\n"
+            result += f"🔗 Source: [{article['source']}]({article['url']})\n"
+            result += f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            result += "─" * 50 + "\n\n"
+        
+        result += f"🎯 Optimized for: {age_group.title()} audience\n"
+        result += f"📊 Total articles: {len(summarized_articles)}"
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error formatting summarized news: {e}")
+        return f"Error formatting news results: {e}"
+
+def _get_location_emoji(location: str) -> str:
+    """Get appropriate emoji for location"""
+    location_lower = location.lower()
+    if 'tanzania' in location_lower or 'dar' in location_lower:
+        return "🇹🇿"
+    elif 'kenya' in location_lower:
+        return "🇰🇪"
+    elif 'uganda' in location_lower:
+        return "🇺🇬"
+    elif 'africa' in location_lower:
+        return "🌍"
+    elif 'usa' in location_lower or 'america' in location_lower:
+        return "🇺🇸"
+    elif 'uk' in location_lower or 'britain' in location_lower:
+        return "🇬🇧"
+    elif 'europe' in location_lower:
+        return "🇪🇺"
+    elif 'asia' in location_lower:
+        return "🌏"
+    else:
+        return "🌍"
+
+def _get_topic_emoji(topic: str) -> str:
+    """Get appropriate emoji for topic"""
+    topic_lower = topic.lower()
+    if any(word in topic_lower for word in ['tech', 'technology', 'ai', 'artificial intelligence']):
+        return "💻"
+    elif any(word in topic_lower for word in ['business', 'economy', 'finance']):
+        return "💰"
+    elif any(word in topic_lower for word in ['sports', 'football', 'basketball']):
+        return "⚽"
+    elif any(word in topic_lower for word in ['politics', 'government']):
+        return "🏛️"
+    elif any(word in topic_lower for word in ['health', 'medical', 'covid']):
+        return "🏥"
+    elif any(word in topic_lower for word in ['entertainment', 'movie', 'music']):
+        return "🎬"
+    elif any(word in topic_lower for word in ['science', 'research']):
+        return "🔬"
+    else:
+        return "📰"
+
+@tool
+def send_daily_news_email(recipient_email: str = "williamjohnie61@gmail.com", news_topics: list = None, custom_content: str = None) -> str:
+    """Send daily news digest email with flexible content from AI
+    
+    Args:
+        recipient_email: Email address to send to
+        news_topics: List of topics to search for (e.g., ["Technology", "Business", "Sports"])
+        custom_content: Pre-generated content to include in email
+    """
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        from datetime import datetime
+        import re
+        
+        # Check email configuration
+        smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+        smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        sender_email = os.getenv('SENDER_EMAIL')
+        sender_password = os.getenv('SENDER_PASSWORD')
+        
+        if not all([sender_email, sender_password, recipient_email]):
+            return "Email configuration incomplete. Please set SENDER_EMAIL, SENDER_PASSWORD, and provide recipient_email in .env file"
+        
+        # Helper function to convert markdown-style content to HTML
+        def convert_content_to_html(content: str) -> str:
+            """Convert markdown-style content to HTML for email"""
+            if not content:
+                return ""
+            
+            # Convert **bold** to <strong>
+            content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', content)
+            
+            # Convert markdown links [text](url) to HTML links
+            content = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color: #3498db; text-decoration: none;">\1</a>', content)
+            
+            # Convert line breaks to <br> tags
+            content = content.replace('\n', '<br>')
+            
+            # Convert separator lines
+            content = re.sub(r'─{10,}', '<hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">', content)
+            
+            return content
+        
+        # Helper function to get emoji for topic
+        def get_topic_emoji(topic: str) -> str:
+            topic_lower = topic.lower()
+            if any(word in topic_lower for word in ['tech', 'technology', 'ai', 'artificial intelligence']):
+                return "💻"
+            elif any(word in topic_lower for word in ['business', 'economy', 'finance']):
+                return "💰"
+            elif any(word in topic_lower for word in ['sports', 'football', 'basketball']):
+                return "⚽"
+            elif any(word in topic_lower for word in ['politics', 'government']):
+                return "🏛️"
+            elif any(word in topic_lower for word in ['health', 'medical', 'covid']):
+                return "🏥"
+            elif any(word in topic_lower for word in ['entertainment', 'movie', 'music']):
+                return "🎬"
+            elif any(word in topic_lower for word in ['science', 'research']):
+                return "🔬"
+            elif any(word in topic_lower for word in ['tanzania', 'africa']):
+                return "🇹🇿"
+            else:
+                return "📰"
+        
+        # Start building email content
+        email_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; }}
+                .header {{ background-color: #2c3e50; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                .section {{ margin: 20px 0; padding: 20px; border-left: 4px solid #3498db; background-color: #f8f9fa; border-radius: 5px; }}
+                .news-item {{ margin: 15px 0; padding: 15px; background-color: white; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                .news-title {{ font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 10px; }}
+                .news-summary {{ color: #555; margin-bottom: 10px; line-height: 1.5; }}
+                .news-source {{ color: #7f8c8d; font-size: 0.9em; margin-top: 10px; }}
+                .news-source a {{ color: #3498db; text-decoration: none; }}
+                .news-source a:hover {{ text-decoration: underline; }}
+                .footer {{ text-align: center; margin-top: 30px; padding: 20px; background-color: #ecf0f1; border-radius: 5px; }}
+                .emoji {{ font-size: 1.2em; }}
+                hr {{ border: none; border-top: 1px solid #ddd; margin: 20px 0; }}
+                strong {{ color: #2c3e50; }}
+                .custom-content {{ background-color: #e8f4fd; padding: 15px; border-radius: 5px; margin: 15px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1><span class="emoji">📰</span> Daily News Digest</h1>
+                <p>{datetime.now().strftime('%A, %B %d, %Y')}</p>
+            </div>
+        """
+        
+        # Add custom content if provided
+        if custom_content:
+            custom_html = convert_content_to_html(custom_content)
+            email_content += f"""
+            <div class="custom-content">
+                <h2><span class="emoji">🤖</span> AI Generated Content</h2>
+                <div class="news-content">
+                    {custom_html}
+                </div>
+            </div>
+            """
+        
+        # Add news topics if provided
+        if news_topics:
+            for topic in news_topics:
+                try:
+                    # Get news for this topic
+                    topic_news = search_news(
+                        topic=topic,
+                        location="Global",
+                        age_group="general",
+                        max_results=3,
+                        time_period="recent"
+                    )
+                    
+                    # Convert the content to HTML
+                    topic_html = convert_content_to_html(topic_news)
+                    topic_emoji = get_topic_emoji(topic)
+                    
+                    email_content += f"""
+                    <div class="section">
+                        <h2><span class="emoji">{topic_emoji}</span> {topic} News</h2>
+                        <div class="news-content">
+                            {topic_html}
+                        </div>
+                    </div>
+                    """
+                    
+                except Exception as e:
+                    logger.error(f"Error getting news for topic {topic}: {e}")
+                    email_content += f"""
+                    <div class="section">
+                        <h2><span class="emoji">❌</span> {topic} News</h2>
+                        <p>Unable to fetch news for this topic at the moment.</p>
+                    </div>
+                    """
+        
+        # If no custom content or topics provided, get some default news
+        if not custom_content and not news_topics:
+            try:
+                # Get some general news
+                general_news = search_news(
+                    topic="latest news",
+                    location="Global",
+                    age_group="general",
+                    max_results=5,
+                    time_period="recent"
+                )
+                
+                general_html = convert_content_to_html(general_news)
+                
+                email_content += f"""
+                <div class="section">
+                    <h2><span class="emoji">🌍</span> Latest News</h2>
+                    <div class="news-content">
+                        {general_html}
+                    </div>
+                </div>
+                """
+                
+            except Exception as e:
+                logger.error(f"Error getting default news: {e}")
+                email_content += f"""
+                <div class="section">
+                    <h2><span class="emoji">❌</span> News</h2>
+                    <p>Unable to fetch news at the moment. Please try again later.</p>
+                </div>
+                """
+        
+        email_content += f"""
+            <div class="footer">
+                <p><span class="emoji">🤖</span> Generated by Artemis AI News Assistant</p>
+                <p style="font-size: 0.9em; color: #7f8c8d;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Send email
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = f"📰 Daily News Digest - {datetime.now().strftime('%B %d, %Y')}"
+        msg['From'] = sender_email
+        msg['To'] = recipient_email
+        
+        html_part = MIMEText(email_content, 'html')
+        msg.attach(html_part)
+        
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+        
+        return f"✅ Daily news digest email sent successfully to {recipient_email}"
+        
+    except Exception as e:
+        logger.error(f"Error sending daily news email: {e}")
+        return f"Error sending email: {e}"
+
+@tool
+def setup_daily_news_schedule(recipient_email: str = "williamjohnie61@gmail.com", time: str = "08:00", include_tanzania: bool = True, include_tech: bool = True) -> str:
+    """Setup daily news email schedule (requires running the scheduler script separately)"""
+    try:
+        import json
+        from datetime import datetime
+        
+        # Create schedule configuration
+        schedule_config = {
+            'recipient_email': recipient_email,
+            'time': time,
+            'include_tanzania': include_tanzania,
+            'include_tech': include_tech,
+            'created_at': datetime.now().isoformat(),
+            'active': True
+        }
+        
+        # Save configuration
+        config_dir = 'data'
+        os.makedirs(config_dir, exist_ok=True)
+        config_file = os.path.join(config_dir, 'news_schedule.json')
+        
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump(schedule_config, f, indent=2)
+        
+        return f"✅ Daily news schedule configured successfully!\n\n" \
+               f"📧 Recipient: {recipient_email}\n" \
+               f"⏰ Time: {time}\n" \
+               f"🇹🇿 Tanzania News: {'Yes' if include_tanzania else 'No'}\n" \
+               f"🌍 Tech News: {'Yes' if include_tech else 'No'}\n\n" \
+               f"To start the scheduler, run: python news_scheduler.py"
+        
+    except Exception as e:
+        logger.error(f"Error setting up news schedule: {e}")
+        return f"Error setting up schedule: {e}"
 # === END TOOLS ===
+
+
+
+
+
+
+
+
+
+
+
+
+
 # === MAIN CLASS ===
 class ConversationalAgent:
     """Main chatbot class with improved error handling and state management"""
@@ -644,14 +1316,13 @@ class ConversationalAgent:
             tavily_search, 
             human_assistance, 
             browse_web_page,
-            generate_linkedin_post,
-            generate_twitter_thread,
-            post_to_linkedin,
-            schedule_content,
             generate_literature_review,
             generate_research_methodology,
             generate_study_plan,
-            generate_audio_response
+            generate_audio_response,
+            search_news,
+            send_daily_news_email,
+            setup_daily_news_schedule
         ]
 
         # Initialize LLM with tools
@@ -664,32 +1335,38 @@ class ConversationalAgent:
 
         # Create a system prompt to guide the LLM's tool usage
         system_prompt = (
-            "You are an expert academic research and study assistant specializing in scholarly work, literature reviews, and educational support. You have access to:\n"
-            "1. 'tavily_search' - find academic papers, research studies, and scholarly information\n"
-            "2. 'browse_web_page' - read and analyze academic articles, research papers, and educational content\n"
-            "3. 'generate_linkedin_post' - create professional academic networking posts\n"
-            "4. 'generate_twitter_thread' - create educational content threads\n"
-            "5. 'post_to_linkedin' - publish academic content\n"
-            "6. 'schedule_content' - schedule academic content\n"
-            "7. 'generate_literature_review' - create comprehensive literature reviews\n"
-            "8. 'generate_research_methodology' - suggest research methodologies\n"
-            "9. 'generate_study_plan' - create detailed study plans\n"
-            "10. 'generate_audio_response' - convert text responses to audio using TTS\n"
-            "11. 'human_assistance' - request human help\n\n"
-            "For academic research: Always prioritize peer-reviewed sources, academic databases, and scholarly content.\n"
-            "For study assistance: Provide comprehensive explanations, examples, and learning strategies.\n\n"
-            "- If the user provides a URL to an academic paper or research article, use the 'browse_web_page' tool to analyze it.\n"
+            "You are a super intelligent AI assistant with access to multiple tools and capabilities. You can help with a wide range of tasks including research, analysis, content creation, and information gathering. You have access to:\n"
+            "1. 'tavily_search' - search the web for current information, research, and data\n"
+            "2. 'browse_web_page' - read and analyze web pages, articles, social media posts (Instagram, LinkedIn, Twitter/X), and online content\n"
+            "3. 'generate_literature_review' - create comprehensive literature reviews on any topic\n"
+            "4. 'generate_research_methodology' - suggest research methodologies for various topics\n"
+            "5. 'generate_study_plan' - create detailed study plans for any subject\n"
+            "6. 'generate_audio_response' - convert text responses to audio using TTS\n"
+            "7. 'search_news' - search for news headlines and updates across locations and topics\n" # Updated tool description
+            "8. 'send_daily_news_email' - send flexible daily news digest email with custom topics or content\n"
+            "9. 'setup_daily_news_schedule' - setup daily news email schedule\n"
+            "10. 'human_assistance' - request human help when needed\n\n"
+            "You are capable of handling diverse topics and providing intelligent, well-researched responses.\n\n"
+            "- If the user provides a URL to any webpage or social media post (Instagram, LinkedIn, Twitter/X), use the 'browse_web_page' tool to analyze it.\n"
             "- If the user asks you to browse a page without providing a URL, you MUST ask for one.\n"
-            "- For research questions, use the 'tavily_search' tool to find recent studies and academic sources.\n"
-            "- For literature reviews, use the 'generate_literature_review' tool for comprehensive academic analysis.\n"
+            "- For research questions and information gathering, use the 'tavily_search' tool to find current information and sources.\n"
+            "- For comprehensive topic analysis, use the 'generate_literature_review' tool for detailed reviews.\n"
             "- For research methodology questions, use the 'generate_research_methodology' tool.\n"
-            "- For study planning, use the 'generate_study_plan' tool for structured learning approaches.\n"
-            "- For study help, provide detailed explanations with examples and practice problems.\n"
-            "- Always cite sources when possible and suggest additional reading materials.\n"
-            "- Focus on academic rigor, critical thinking, and evidence-based responses.\n"
+            "- For learning and study planning, use the 'generate_study_plan' tool for structured approaches.\n"
+            "- Provide detailed explanations with examples and practical applications.\n"
+            "- Always cite sources when possible and suggest additional resources.\n"
+            "- Focus on accuracy, critical thinking, and evidence-based responses.\n"
             "- When users ask for audio versions of responses or say 'speak this', 'read aloud', or 'audio', use the 'generate_audio_response' tool.\n"
+            "- When users ask for news, headlines, current events, or any news-related queries, ALWAYS use the 'search_news' tool.\n"
+            "- For general news requests, use 'search_news' with topic='latest news' and location='global'.\n"
+            "- For specific topic news (like AI, technology, business, etc.), use 'search_news' with the appropriate topic.\n"
+            "- For AI trends, AI news, or technology trends, use 'search_news' with topic='AI trends' or 'technology trends'.\n"
+            "- For location-specific news, use 'search_news' with the appropriate location parameter.\n"
+            "- When users ask to send news via email, use the 'send_daily_news_email' tool with custom topics or content.\n"
+            "- For email scheduling, use the 'setup_daily_news_schedule' tool.\n"
             "- If the user asks for 'expert guidance', 'human help', or explicitly asks you to 'request assistance', "
-            "you MUST use the 'human_assistance' tool. Do not try to answer these queries yourself."
+            "you MUST use the 'human_assistance' tool. Do not try to answer these queries yourself.\n"
+            "- IMPORTANT: When users ask for news, trends, or current events, ALWAYS use the 'search_news' tool instead of providing manual summaries or responses."
         )
 
         prompt = ChatPromptTemplate.from_messages(

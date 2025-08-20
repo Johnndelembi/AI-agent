@@ -19,8 +19,8 @@ if 'agent' not in st.session_state:
 
 # Set page config
 st.set_page_config(
-    page_title="Artemis AI",
-    page_icon="📚",
+    page_title="Artemis",
+    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -58,7 +58,7 @@ st.markdown("""
 # Initialize chat history
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "Hello! I'm your AI Research & Study Assistant. I can help you with academic research, literature reviews, data analysis, study planning, and scholarly writing. What would you like to research or study today?"}
+        {"role": "assistant", "content": "Hello! I'm your personal assistant. I can help you with research, market analysis, content creation, news gathering, web browsing, and much more. What would you like to explore today?"}
     ]
 
 # Track last generated audio file for direct playback
@@ -71,9 +71,9 @@ if "awaiting_response" not in st.session_state:
 
 # Sidebar
 with st.sidebar:
-    st.title("📚 Research & Study Assistant")
+    st.title("🤖 AI Assistant")
     st.success(
-        "A powerful AI assistant for academic research, literature reviews, study planning, and scholarly writing."
+        "A powerful AI assistant for research, analysis, content creation, news gathering, web browsing, and much more."
     )
     
     
