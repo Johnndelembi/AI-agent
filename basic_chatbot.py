@@ -444,10 +444,20 @@ def generate_study_plan(subject: str) -> str:
     return response.content
 
 @tool
-def generate_audio_response(text: str, voice: str = None, lang_code: str = None) -> str:
-    """Generate audio from text using TTS (Text-to-Speech)"""
+def generate_audio_response(request: str) -> str:
+    """Generate audio from text using TTS (Text-to-Speech)
+    
+    Args:
+        request: Audio request in format "text|voice|lang_code" (e.g., "Hello world|af_heart|b")
+    """
     if not TTS_AVAILABLE:
         return "TTS is not available. Please install kokoro and soundfile libraries."
+    
+    # Parse the request
+    parts = request.split('|')
+    text = parts[0] if len(parts) > 0 else ""
+    voice = parts[1] if len(parts) > 1 else None
+    lang_code = parts[2] if len(parts) > 2 else None
     
     audio_files = generate_tts_audio(text, voice, lang_code)
     
@@ -785,7 +795,7 @@ def _browse_regular_webpage(url: str) -> str:
         return f"An unexpected error occurred: {e}"
 
 @tool
-def search_news(topic: str = "latest news", location: str = "global", age_group: str = "general", max_results: int = 5, time_period: str = "recent") -> str:
+def search_news(query: str) -> str:
     """Search for news, headlines, and current events using Tavily search. Use this tool for ANY news-related queries including AI trends, technology news, business news, world news, etc.
     
     Args:
@@ -794,9 +804,19 @@ def search_news(topic: str = "latest news", location: str = "global", age_group:
         age_group: Target age group ("general", "youth", "senior", "professional")
         max_results: Maximum number of news items to return (default: 5)
         time_period: Time period for news ("recent", "today", "week", "month")
+    
+    Args:
+        query: News query to search for (e.g., "AI trends", "technology news", "latest news", "business news")
     """
     try:
         from datetime import datetime, timedelta
+        
+        # Parse the query to extract topic and location if possible
+        topic = query
+        location = "global"
+        age_group = "general"
+        max_results = 5
+        time_period = "recent"
         
         # Create optimized search query based on parameters
         search_query = _build_news_search_query(topic, location, age_group, time_period)
@@ -1044,13 +1064,11 @@ def _get_topic_emoji(topic: str) -> str:
         return "📰"
 
 @tool
-def send_daily_news_email(recipient_email: str = "williamjohnie61@gmail.com", news_topics: list = None, custom_content: str = None) -> str:
+def send_daily_news_email(request: str) -> str:
     """Send daily news digest email with flexible content from AI
     
     Args:
-        recipient_email: Email address to send to
-        news_topics: List of topics to search for (e.g., ["Technology", "Business", "Sports"])
-        custom_content: Pre-generated content to include in email
+        request: Email request in format "recipient_email|topics|content" (e.g., "user@example.com|Technology,AI|Custom content")
     """
     try:
         import smtplib
@@ -1058,6 +1076,12 @@ def send_daily_news_email(recipient_email: str = "williamjohnie61@gmail.com", ne
         from email.mime.multipart import MIMEMultipart
         from datetime import datetime
         import re
+        
+        # Parse the request
+        parts = request.split('|')
+        recipient_email = parts[0] if len(parts) > 0 else "williamjohnie61@gmail.com"
+        news_topics = parts[1].split(',') if len(parts) > 1 and parts[1] else None
+        custom_content = parts[2] if len(parts) > 2 else None
         
         # Check email configuration
         smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -1157,13 +1181,7 @@ def send_daily_news_email(recipient_email: str = "williamjohnie61@gmail.com", ne
             for topic in news_topics:
                 try:
                     # Get news for this topic
-                    topic_news = search_news(
-                        topic=topic,
-                        location="Global",
-                        age_group="general",
-                        max_results=3,
-                        time_period="recent"
-                    )
+                    topic_news = search_news.invoke({"query": topic})
                     
                     # Convert the content to HTML
                     topic_html = convert_content_to_html(topic_news)
@@ -1191,13 +1209,7 @@ def send_daily_news_email(recipient_email: str = "williamjohnie61@gmail.com", ne
         if not custom_content and not news_topics:
             try:
                 # Get some general news
-                general_news = search_news(
-                    topic="latest news",
-                    location="Global",
-                    age_group="general",
-                    max_results=5,
-                    time_period="recent"
-                )
+                general_news = search_news.invoke({"query": "latest news"})
                 
                 general_html = convert_content_to_html(general_news)
                 
@@ -1249,11 +1261,22 @@ def send_daily_news_email(recipient_email: str = "williamjohnie61@gmail.com", ne
         return f"Error sending email: {e}"
 
 @tool
-def setup_daily_news_schedule(recipient_email: str = "williamjohnie61@gmail.com", time: str = "08:00", include_tanzania: bool = True, include_tech: bool = True) -> str:
-    """Setup daily news email schedule (requires running the scheduler script separately)"""
+def setup_daily_news_schedule(request: str) -> str:
+    """Setup daily news email schedule (requires running the scheduler script separately)
+    
+    Args:
+        request: Schedule request in format "recipient_email|time|include_tanzania|include_tech" (e.g., "user@example.com|08:00|true|true")
+    """
     try:
         import json
         from datetime import datetime
+        
+        # Parse the request
+        parts = request.split('|')
+        recipient_email = parts[0] if len(parts) > 0 else "williamjohnie61@gmail.com"
+        time = parts[1] if len(parts) > 1 else "08:00"
+        include_tanzania = parts[2].lower() == 'true' if len(parts) > 2 else True
+        include_tech = parts[3].lower() == 'true' if len(parts) > 3 else True
         
         # Create schedule configuration
         schedule_config = {
@@ -1358,10 +1381,10 @@ class ConversationalAgent:
             "- Focus on accuracy, critical thinking, and evidence-based responses.\n"
             "- When users ask for audio versions of responses or say 'speak this', 'read aloud', or 'audio', use the 'generate_audio_response' tool.\n"
             "- When users ask for news, headlines, current events, or any news-related queries, ALWAYS use the 'search_news' tool.\n"
-            "- For general news requests, use 'search_news' with topic='latest news' and location='global'.\n"
-            "- For specific topic news (like AI, technology, business, etc.), use 'search_news' with the appropriate topic.\n"
-            "- For AI trends, AI news, or technology trends, use 'search_news' with topic='AI trends' or 'technology trends'.\n"
-            "- For location-specific news, use 'search_news' with the appropriate location parameter.\n"
+            "- For general news requests, use 'search_news' with the query 'latest news'.\n"
+            "- For specific topic news (like AI, technology, business, etc.), use 'search_news' with the topic as the query.\n"
+            "- For AI trends, AI news, or technology trends, use 'search_news' with queries like 'AI trends' or 'technology trends'.\n"
+            "- For location-specific news, include the location in the query like 'news in Tanzania' or 'technology news in Africa'.\n"
             "- When users ask to send news via email, use the 'send_daily_news_email' tool with custom topics or content.\n"
             "- For email scheduling, use the 'setup_daily_news_schedule' tool.\n"
             "- If the user asks for 'expert guidance', 'human help', or explicitly asks you to 'request assistance', "
