@@ -444,20 +444,10 @@ def generate_study_plan(subject: str) -> str:
     return response.content
 
 @tool
-def generate_audio_response(request: str) -> str:
-    """Generate audio from text using TTS (Text-to-Speech)
-    
-    Args:
-        request: Audio request in format "text|voice|lang_code" (e.g., "Hello world|af_heart|b")
-    """
+def generate_audio_response(text: str, voice: str = None, lang_code: str = None) -> str:
+    """Generate audio from text using TTS (Text-to-Speech)"""
     if not TTS_AVAILABLE:
         return "TTS is not available. Please install kokoro and soundfile libraries."
-    
-    # Parse the request
-    parts = request.split('|')
-    text = parts[0] if len(parts) > 0 else ""
-    voice = parts[1] if len(parts) > 1 else None
-    lang_code = parts[2] if len(parts) > 2 else None
     
     audio_files = generate_tts_audio(text, voice, lang_code)
     
@@ -795,280 +785,13 @@ def _browse_regular_webpage(url: str) -> str:
         return f"An unexpected error occurred: {e}"
 
 @tool
-def search_news(query: str) -> str:
-    """Search for news, headlines, and current events using Tavily search. Use this tool for ANY news-related queries including AI trends, technology news, business news, world news, etc.
+def send_email(recipient_email: str = "williamjohnie61@gmail.com", subject: str = "Message from Artemis AI", content: str = None) -> str:
+    """Send an email with custom content
     
     Args:
-        topic: News topic to search for (e.g., "AI trends", "technology news", "latest news", "business news")
-        location: Geographic location for news (default: "global")
-        age_group: Target age group ("general", "youth", "senior", "professional")
-        max_results: Maximum number of news items to return (default: 5)
-        time_period: Time period for news ("recent", "today", "week", "month")
-    
-    Args:
-        query: News query to search for (e.g., "AI trends", "technology news", "latest news", "business news")
-    """
-    try:
-        from datetime import datetime, timedelta
-        
-        # Parse the query to extract topic and location if possible
-        topic = query
-        location = "global"
-        age_group = "general"
-        max_results = 5
-        time_period = "recent"
-        
-        # Create optimized search query based on parameters
-        search_query = _build_news_search_query(topic, location, age_group, time_period)
-        
-        # Use Tavily search to get news
-        tavily_search = TavilySearch(max_results=max_results * 2)  # Get more results to account for filtering
-        search_results = tavily_search.invoke(search_query)
-        
-        if not search_results or not hasattr(search_results, 'content'):
-            return f"No news found for '{topic}' in {location}."
-        
-        # Extract URLs and headlines from search results
-        news_items = _extract_news_from_search_results(search_results.content, max_results)
-        
-        if not news_items:
-            return f"No relevant news found for '{topic}' in {location}."
-        
-        # Fetch and summarize each article
-        summarized_news = _fetch_and_summarize_articles(news_items, topic, location, age_group)
-        
-        return summarized_news
-        
-    except Exception as e:
-        logger.error(f"Error in search_news: {e}")
-        return f"Error searching for news: {e}"
-
-def _build_news_search_query(topic: str, location: str, age_group: str, time_period: str) -> str:
-    """Build an optimized search query for news based on parameters"""
-    
-    # Base query
-    query_parts = [topic]
-    
-    # Add location context
-    if location.lower() != "global":
-        query_parts.append(f"in {location}")
-    
-    # Add time period context
-    time_contexts = {
-        "recent": "latest breaking news",
-        "today": "today's news",
-        "week": "this week's news",
-        "month": "this month's news"
-    }
-    if time_period in time_contexts:
-        query_parts.append(time_contexts[time_period])
-    
-    # Add age-appropriate context
-    age_contexts = {
-        "youth": "trending viral news",
-        "senior": "important developments",
-        "professional": "business and industry news",
-        "general": "mainstream news"
-    }
-    if age_group in age_contexts:
-        query_parts.append(age_contexts[age_group])
-    
-    # Add news-specific terms
-    query_parts.extend(["news", "headlines", "latest updates"])
-    
-    return " ".join(query_parts)
-
-def _extract_news_from_search_results(search_content: str, max_results: int) -> list:
-    """Extract news URLs and headlines from Tavily search results"""
-    try:
-        news_items = []
-        lines = search_content.split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if line and len(line) > 20:
-                # Look for lines that might contain URLs
-                if 'http' in line and any(domain in line.lower() for domain in ['news', 'bbc', 'cnn', 'reuters', 'ap', 'guardian', 'nytimes', 'washingtonpost', 'techcrunch', 'theverge', 'arstechnica', 'wired', 'mit', 'citizen', 'dailynews', 'ippmedia', 'mwananchi']):
-                    # Extract URL and title
-                    url_match = re.search(r'https?://[^\s]+', line)
-                    if url_match:
-                        url = url_match.group(0)
-                        # Clean up the title (remove URL and extra formatting)
-                        title = line.replace(url, '').replace('•', '').replace('-', '').strip()
-                        if title and len(title) > 10:
-                            news_items.append({
-                                'url': url,
-                                'title': title,
-                                'source': _extract_source_from_url(url)
-                            })
-        
-        return news_items[:max_results]
-        
-    except Exception as e:
-        logger.error(f"Error extracting news from search results: {e}")
-        return []
-
-def _extract_source_from_url(url: str) -> str:
-    """Extract source name from URL"""
-    try:
-        from urllib.parse import urlparse
-        domain = urlparse(url).netloc
-        # Remove www. and common TLDs
-        source = domain.replace('www.', '').split('.')[0]
-        return source.title()
-    except:
-        return "Unknown Source"
-
-def _fetch_and_summarize_articles(news_items: list, topic: str, location: str, age_group: str) -> str:
-    """Fetch full articles and generate summaries"""
-    try:
-        llm = init_chat_model(MODEL, model_provider=model_provider)
-        summarized_articles = []
-        
-        for i, item in enumerate(news_items, 1):
-            try:
-                logger.info(f"Fetching article {i}/{len(news_items)}: {item['title'][:50]}...")
-                
-                # Fetch the full article content
-                article_content = browse_web_page.invoke({'url': item['url']})
-                
-                if article_content and not article_content.startswith("Error") and len(article_content) > 100:
-                    # Generate summary using LLM
-                    summary = _generate_article_summary(llm, article_content, item['title'], age_group)
-                    
-                    summarized_articles.append({
-                        'title': item['title'],
-                        'summary': summary,
-                        'url': item['url'],
-                        'source': item['source']
-                    })
-                else:
-                    # If we can't fetch the article, just include the headline
-                    summarized_articles.append({
-                        'title': item['title'],
-                        'summary': "Article content could not be fetched. Please visit the source for full details.",
-                        'url': item['url'],
-                        'source': item['source']
-                    })
-                
-            except Exception as e:
-                logger.error(f"Error processing article {i}: {e}")
-                continue
-        
-        # Format the results
-        return _format_summarized_news(summarized_articles, topic, location, age_group)
-        
-    except Exception as e:
-        logger.error(f"Error fetching and summarizing articles: {e}")
-        return f"Error processing news articles: {e}"
-
-def _generate_article_summary(llm, article_content: str, title: str, age_group: str) -> str:
-    """Generate a concise summary of the article content"""
-    try:
-        # Truncate content if too long to avoid token limits
-        max_content_length = 3000
-        if len(article_content) > max_content_length:
-            article_content = article_content[:max_content_length] + "..."
-        
-        # Create age-appropriate summary prompt
-        age_context = {
-            "youth": "Write a concise, engaging summary suitable for young adults",
-            "senior": "Write a clear, detailed summary with important context",
-            "professional": "Write a professional summary focusing on key facts and implications",
-            "general": "Write a clear, balanced summary for general audience"
-        }
-        
-        prompt = f"""
-        {age_context.get(age_group, age_context['general'])} for this news article:
-        
-        Title: {title}
-        
-        Article Content:
-        {article_content}
-        
-        Provide a 2-3 sentence summary that captures the main points and key details.
-        Focus on the most important information and maintain accuracy.
-        """
-        
-        response = llm.invoke(prompt)
-        return response.content.strip()
-        
-    except Exception as e:
-        logger.error(f"Error generating summary: {e}")
-        return "Summary could not be generated."
-
-def _format_summarized_news(summarized_articles: list, topic: str, location: str, age_group: str) -> str:
-    """Format the summarized news articles with proper structure"""
-    try:
-        location_emoji = _get_location_emoji(location)
-        topic_emoji = _get_topic_emoji(topic)
-        
-        result = f"{location_emoji} {topic_emoji} News Summary for {location.title()}:\n\n"
-        
-        for i, article in enumerate(summarized_articles, 1):
-            result += f"📰 **{i}. {article['title']}**\n"
-            result += f"📝 {article['summary']}\n"
-            result += f"🔗 Source: [{article['source']}]({article['url']})\n"
-            result += f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            result += "─" * 50 + "\n\n"
-        
-        result += f"🎯 Optimized for: {age_group.title()} audience\n"
-        result += f"📊 Total articles: {len(summarized_articles)}"
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error formatting summarized news: {e}")
-        return f"Error formatting news results: {e}"
-
-def _get_location_emoji(location: str) -> str:
-    """Get appropriate emoji for location"""
-    location_lower = location.lower()
-    if 'tanzania' in location_lower or 'dar' in location_lower:
-        return "🇹🇿"
-    elif 'kenya' in location_lower:
-        return "🇰🇪"
-    elif 'uganda' in location_lower:
-        return "🇺🇬"
-    elif 'africa' in location_lower:
-        return "🌍"
-    elif 'usa' in location_lower or 'america' in location_lower:
-        return "🇺🇸"
-    elif 'uk' in location_lower or 'britain' in location_lower:
-        return "🇬🇧"
-    elif 'europe' in location_lower:
-        return "🇪🇺"
-    elif 'asia' in location_lower:
-        return "🌏"
-    else:
-        return "🌍"
-
-def _get_topic_emoji(topic: str) -> str:
-    """Get appropriate emoji for topic"""
-    topic_lower = topic.lower()
-    if any(word in topic_lower for word in ['tech', 'technology', 'ai', 'artificial intelligence']):
-        return "💻"
-    elif any(word in topic_lower for word in ['business', 'economy', 'finance']):
-        return "💰"
-    elif any(word in topic_lower for word in ['sports', 'football', 'basketball']):
-        return "⚽"
-    elif any(word in topic_lower for word in ['politics', 'government']):
-        return "🏛️"
-    elif any(word in topic_lower for word in ['health', 'medical', 'covid']):
-        return "🏥"
-    elif any(word in topic_lower for word in ['entertainment', 'movie', 'music']):
-        return "🎬"
-    elif any(word in topic_lower for word in ['science', 'research']):
-        return "🔬"
-    else:
-        return "📰"
-
-@tool
-def send_daily_news_email(request: str) -> str:
-    """Send daily news digest email with flexible content from AI
-    
-    Args:
-        request: Email request in format "recipient_email|topics|content" (e.g., "user@example.com|Technology,AI|Custom content")
+        recipient_email: Email address to send to
+        subject: Email subject line
+        content: Email content/body text
     """
     try:
         import smtplib
@@ -1076,12 +799,6 @@ def send_daily_news_email(request: str) -> str:
         from email.mime.multipart import MIMEMultipart
         from datetime import datetime
         import re
-        
-        # Parse the request
-        parts = request.split('|')
-        recipient_email = parts[0] if len(parts) > 0 else "williamjohnie61@gmail.com"
-        news_topics = parts[1].split(',') if len(parts) > 1 and parts[1] else None
-        custom_content = parts[2] if len(parts) > 2 else None
         
         # Check email configuration
         smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -1091,6 +808,9 @@ def send_daily_news_email(request: str) -> str:
         
         if not all([sender_email, sender_password, recipient_email]):
             return "Email configuration incomplete. Please set SENDER_EMAIL, SENDER_PASSWORD, and provide recipient_email in .env file"
+        
+        if not content:
+            return "Email content is required. Please provide content parameter."
         
         # Helper function to convert markdown-style content to HTML
         def convert_content_to_html(content: str) -> str:
@@ -1112,29 +832,7 @@ def send_daily_news_email(request: str) -> str:
             
             return content
         
-        # Helper function to get emoji for topic
-        def get_topic_emoji(topic: str) -> str:
-            topic_lower = topic.lower()
-            if any(word in topic_lower for word in ['tech', 'technology', 'ai', 'artificial intelligence']):
-                return "💻"
-            elif any(word in topic_lower for word in ['business', 'economy', 'finance']):
-                return "💰"
-            elif any(word in topic_lower for word in ['sports', 'football', 'basketball']):
-                return "⚽"
-            elif any(word in topic_lower for word in ['politics', 'government']):
-                return "🏛️"
-            elif any(word in topic_lower for word in ['health', 'medical', 'covid']):
-                return "🏥"
-            elif any(word in topic_lower for word in ['entertainment', 'movie', 'music']):
-                return "🎬"
-            elif any(word in topic_lower for word in ['science', 'research']):
-                return "🔬"
-            elif any(word in topic_lower for word in ['tanzania', 'africa']):
-                return "🇹🇿"
-            else:
-                return "📰"
-        
-        # Start building email content
+        # Build email content
         email_content = f"""
         <!DOCTYPE html>
         <html>
@@ -1143,98 +841,25 @@ def send_daily_news_email(request: str) -> str:
             <style>
                 body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; }}
                 .header {{ background-color: #2c3e50; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
-                .section {{ margin: 20px 0; padding: 20px; border-left: 4px solid #3498db; background-color: #f8f9fa; border-radius: 5px; }}
-                .news-item {{ margin: 15px 0; padding: 15px; background-color: white; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-                .news-title {{ font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 10px; }}
-                .news-summary {{ color: #555; margin-bottom: 10px; line-height: 1.5; }}
-                .news-source {{ color: #7f8c8d; font-size: 0.9em; margin-top: 10px; }}
-                .news-source a {{ color: #3498db; text-decoration: none; }}
-                .news-source a:hover {{ text-decoration: underline; }}
+                .content {{ margin: 20px 0; padding: 20px; background-color: #f8f9fa; border-radius: 5px; }}
                 .footer {{ text-align: center; margin-top: 30px; padding: 20px; background-color: #ecf0f1; border-radius: 5px; }}
                 .emoji {{ font-size: 1.2em; }}
-                hr {{ border: none; border-top: 1px solid #ddd; margin: 20px 0; }}
                 strong {{ color: #2c3e50; }}
-                .custom-content {{ background-color: #e8f4fd; padding: 15px; border-radius: 5px; margin: 15px 0; }}
             </style>
         </head>
         <body>
             <div class="header">
-                <h1><span class="emoji">📰</span> Daily News Digest</h1>
-                <p>{datetime.now().strftime('%A, %B %d, %Y')}</p>
+                <h1><span class="emoji">🤖</span>{subject}</h1>
             </div>
-        """
-        
-        # Add custom content if provided
-        if custom_content:
-            custom_html = convert_content_to_html(custom_content)
-            email_content += f"""
-            <div class="custom-content">
-                <h2><span class="emoji">🤖</span> AI Generated Content</h2>
-                <div class="news-content">
-                    {custom_html}
-                </div>
+            
+            <div class="content">
+                {convert_content_to_html(content)}
             </div>
-            """
-        
-        # Add news topics if provided
-        if news_topics:
-            for topic in news_topics:
-                try:
-                    # Get news for this topic
-                    topic_news = search_news.invoke({"query": topic})
-                    
-                    # Convert the content to HTML
-                    topic_html = convert_content_to_html(topic_news)
-                    topic_emoji = get_topic_emoji(topic)
-                    
-                    email_content += f"""
-                    <div class="section">
-                        <h2><span class="emoji">{topic_emoji}</span> {topic} News</h2>
-                        <div class="news-content">
-                            {topic_html}
-                        </div>
-                    </div>
-                    """
-                    
-                except Exception as e:
-                    logger.error(f"Error getting news for topic {topic}: {e}")
-                    email_content += f"""
-                    <div class="section">
-                        <h2><span class="emoji">❌</span> {topic} News</h2>
-                        <p>Unable to fetch news for this topic at the moment.</p>
-                    </div>
-                    """
-        
-        # If no custom content or topics provided, get some default news
-        if not custom_content and not news_topics:
-            try:
-                # Get some general news
-                general_news = search_news.invoke({"query": "latest news"})
-                
-                general_html = convert_content_to_html(general_news)
-                
-                email_content += f"""
-                <div class="section">
-                    <h2><span class="emoji">🌍</span> Latest News</h2>
-                    <div class="news-content">
-                        {general_html}
-                    </div>
-                </div>
-                """
-                
-            except Exception as e:
-                logger.error(f"Error getting default news: {e}")
-                email_content += f"""
-                <div class="section">
-                    <h2><span class="emoji">❌</span> News</h2>
-                    <p>Unable to fetch news at the moment. Please try again later.</p>
-                </div>
-                """
-        
-        email_content += f"""
+            
             <div class="footer">
-                <p><span class="emoji">🤖</span> Generated by Artemis AI News Assistant</p>
+                <p><span class="emoji">🤖</span> Artemis @2025</p>
                 <p style="font-size: 0.9em; color: #7f8c8d;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                <p style="font-size: 0.9em; color: #7f8c8d;">Product of John Ndelembi</p>
             </div>
         </body>
         </html>
@@ -1242,7 +867,7 @@ def send_daily_news_email(request: str) -> str:
         
         # Send email
         msg = MIMEMultipart('alternative')
-        msg['Subject'] = f"📰 Daily News Digest - {datetime.now().strftime('%B %d, %Y')}"
+        msg['Subject'] = subject
         msg['From'] = sender_email
         msg['To'] = recipient_email
         
@@ -1254,36 +879,25 @@ def send_daily_news_email(request: str) -> str:
             server.login(sender_email, sender_password)
             server.send_message(msg)
         
-        return f"✅ Daily news digest email sent successfully to {recipient_email}"
+        return f"✅ Email sent successfully to {recipient_email}"
         
     except Exception as e:
-        logger.error(f"Error sending daily news email: {e}")
+        logger.error(f"Error sending email: {e}")
         return f"Error sending email: {e}"
 
 @tool
-def setup_daily_news_schedule(request: str) -> str:
-    """Setup daily news email schedule (requires running the scheduler script separately)
-    
-    Args:
-        request: Schedule request in format "recipient_email|time|include_tanzania|include_tech" (e.g., "user@example.com|08:00|true|true")
-    """
+def setup_email_schedule(recipient_email: str = "williamjohnie61@gmail.com", time: str = "08:00", subject: str = "Daily Update", content: str = "This is your scheduled daily update.") -> str:
+    """Setup scheduled email sending (requires running the scheduler script separately)"""
     try:
         import json
         from datetime import datetime
-        
-        # Parse the request
-        parts = request.split('|')
-        recipient_email = parts[0] if len(parts) > 0 else "williamjohnie61@gmail.com"
-        time = parts[1] if len(parts) > 1 else "08:00"
-        include_tanzania = parts[2].lower() == 'true' if len(parts) > 2 else True
-        include_tech = parts[3].lower() == 'true' if len(parts) > 3 else True
         
         # Create schedule configuration
         schedule_config = {
             'recipient_email': recipient_email,
             'time': time,
-            'include_tanzania': include_tanzania,
-            'include_tech': include_tech,
+            'subject': subject,
+            'content': content,
             'created_at': datetime.now().isoformat(),
             'active': True
         }
@@ -1291,20 +905,20 @@ def setup_daily_news_schedule(request: str) -> str:
         # Save configuration
         config_dir = 'data'
         os.makedirs(config_dir, exist_ok=True)
-        config_file = os.path.join(config_dir, 'news_schedule.json')
+        config_file = os.path.join(config_dir, 'email_schedule.json')
         
         with open(config_file, 'w', encoding='utf-8') as f:
             json.dump(schedule_config, f, indent=2)
         
-        return f"✅ Daily news schedule configured successfully!\n\n" \
+        return f"✅ Email schedule configured successfully!\n\n" \
                f"📧 Recipient: {recipient_email}\n" \
                f"⏰ Time: {time}\n" \
-               f"🇹🇿 Tanzania News: {'Yes' if include_tanzania else 'No'}\n" \
-               f"🌍 Tech News: {'Yes' if include_tech else 'No'}\n\n" \
-               f"To start the scheduler, run: python news_scheduler.py"
+               f"📝 Subject: {subject}\n" \
+               f"📄 Content: {content[:100]}{'...' if len(content) > 100 else ''}\n\n" \
+               f"To start the scheduler, run: python email_scheduler.py"
         
     except Exception as e:
-        logger.error(f"Error setting up news schedule: {e}")
+        logger.error(f"Error setting up email schedule: {e}")
         return f"Error setting up schedule: {e}"
 # === END TOOLS ===
 
@@ -1343,9 +957,8 @@ class ConversationalAgent:
             generate_research_methodology,
             generate_study_plan,
             generate_audio_response,
-            search_news,
-            send_daily_news_email,
-            setup_daily_news_schedule
+            send_email,
+            setup_email_schedule
         ]
 
         # Initialize LLM with tools
@@ -1365,10 +978,9 @@ class ConversationalAgent:
             "4. 'generate_research_methodology' - suggest research methodologies for various topics\n"
             "5. 'generate_study_plan' - create detailed study plans for any subject\n"
             "6. 'generate_audio_response' - convert text responses to audio using TTS\n"
-            "7. 'search_news' - search for news headlines and updates across locations and topics\n" # Updated tool description
-            "8. 'send_daily_news_email' - send flexible daily news digest email with custom topics or content\n"
-            "9. 'setup_daily_news_schedule' - setup daily news email schedule\n"
-            "10. 'human_assistance' - request human help when needed\n\n"
+            "7. 'send_email' - send custom emails with any content\n"
+            "8. 'setup_email_schedule' - setup scheduled email sending\n"
+            "9. 'human_assistance' - request human help when needed\n\n"
             "You are capable of handling diverse topics and providing intelligent, well-researched responses.\n\n"
             "- If the user provides a URL to any webpage or social media post (Instagram, LinkedIn, Twitter/X), use the 'browse_web_page' tool to analyze it.\n"
             "- If the user asks you to browse a page without providing a URL, you MUST ask for one.\n"
@@ -1380,16 +992,10 @@ class ConversationalAgent:
             "- Always cite sources when possible and suggest additional resources.\n"
             "- Focus on accuracy, critical thinking, and evidence-based responses.\n"
             "- When users ask for audio versions of responses or say 'speak this', 'read aloud', or 'audio', use the 'generate_audio_response' tool.\n"
-            "- When users ask for news, headlines, current events, or any news-related queries, ALWAYS use the 'search_news' tool.\n"
-            "- For general news requests, use 'search_news' with the query 'latest news'.\n"
-            "- For specific topic news (like AI, technology, business, etc.), use 'search_news' with the topic as the query.\n"
-            "- For AI trends, AI news, or technology trends, use 'search_news' with queries like 'AI trends' or 'technology trends'.\n"
-            "- For location-specific news, include the location in the query like 'news in Tanzania' or 'technology news in Africa'.\n"
-            "- When users ask to send news via email, use the 'send_daily_news_email' tool with custom topics or content.\n"
-            "- For email scheduling, use the 'setup_daily_news_schedule' tool.\n"
+            "- When users ask to send emails, use the 'send_email' tool with recipient_email, subject, and content parameters.\n"
+            "- For email scheduling, use the 'setup_email_schedule' tool with recipient_email, time, subject, and content parameters.\n"
             "- If the user asks for 'expert guidance', 'human help', or explicitly asks you to 'request assistance', "
-            "you MUST use the 'human_assistance' tool. Do not try to answer these queries yourself.\n"
-            "- IMPORTANT: When users ask for news, trends, or current events, ALWAYS use the 'search_news' tool instead of providing manual summaries or responses."
+            "you MUST use the 'human_assistance' tool. Do not try to answer these queries yourself."
         )
 
         prompt = ChatPromptTemplate.from_messages(
