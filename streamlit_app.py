@@ -81,53 +81,9 @@ with st.sidebar:
     
     
     def sidebar_quick_actions():
-        # Research topic input
-        with st.expander("🔬 Research Tools", expanded=False):
-            research_topic = st.text_input("Research Topic:", placeholder="Enter your research topic...")
-            
-            # Academic research tools
-            if st.button("📖 Literature Review"):
-                if research_topic:
-                    st.session_state.messages.append({"role": "user", "content": f"Help me conduct a literature review on {research_topic}. Include recent studies, key findings, and research gaps."})
-                    st.session_state.awaiting_response = True
-                    st.rerun()
-            
-            if st.button("📊 Research Methodology"):
-                if research_topic:
-                    st.session_state.messages.append({"role": "user", "content": f"Suggest appropriate research methodologies for studying {research_topic}. Include quantitative and qualitative approaches."})
-                    st.session_state.awaiting_response = True
-                    st.rerun()
-            
-            if st.button("📝 Academic Writing"):
-                if research_topic:
-                    st.session_state.messages.append({"role": "user", "content": f"Help me write an academic paper introduction about {research_topic}. Include background, problem statement, and objectives."})
-                    st.session_state.awaiting_response = True
-                    st.rerun()
-        
-        # Study assistance tools
-        with st.expander("📚 Study Assistance", expanded=False):
-            study_subject = st.text_input("Study Subject:", placeholder="What are you studying?")
-            
-            if st.button("🎯 Study Plan"):
-                if study_subject:
-                    st.session_state.messages.append({"role": "user", "content": f"Create a comprehensive study plan for {study_subject}. Include learning objectives, timeline, and study strategies."})
-                    st.session_state.awaiting_response = True
-                    st.rerun()
-            
-            if st.button("❓ Practice Questions"):
-                if study_subject:
-                    st.session_state.messages.append({"role": "user", "content": f"Generate practice questions and problems for {study_subject} to test my understanding."})
-                    st.session_state.awaiting_response = True
-                    st.rerun()
-            
-            if st.button("📋 Summary & Notes"):
-                if study_subject:
-                    st.session_state.messages.append({"role": "user", "content": f"Create a comprehensive summary and study notes for {study_subject} with key concepts and examples."})
-                    st.session_state.awaiting_response = True
-                    st.rerun()
 
         # Audio Tools
-        st.header("🎵 Generate Audio")
+        # st.header("🎵 Generate Audio")
         if TTS_AVAILABLE:
             if st.button("🔊 Speak Last Response"):
                 # Directly generate audio from the last assistant message
