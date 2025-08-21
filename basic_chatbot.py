@@ -842,23 +842,22 @@ def send_email(recipient_email: str = "williamjohnie61@gmail.com", subject: str 
                 body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; }}
                 .header {{ background-color: #2c3e50; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
                 .content {{ margin: 20px 0; padding: 20px; background-color: #f8f9fa; border-radius: 5px; }}
-                .footer {{ text-align: center; margin-top: 30px; padding: 20px; background-color: #ecf0f1; border-radius: 5px; }}
                 .emoji {{ font-size: 1.2em; }}
                 strong {{ color: #2c3e50; }}
             </style>
         </head>
         <body>
-            <div class="header">
-                <h1><span class="emoji">🤖</span>{subject}</h1>
+            <div class="header" style="text-align: justify;">
+                <h1>{subject}</h1>
             </div>
             
-            <div class="content">
+            <div class="content" style="text-align: justify;">
                 {convert_content_to_html(content)}
             </div>
             
             <div class="footer">
                 <p><span class="emoji">🤖</span> Artemis @2025</p>
-                <p style="font-size: 0.9em; color: #7f8c8d;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                <p style="font-size: 0.9em; color: #7f8c8d;">{datetime.now().strftime('%Y-%m-%d')}</p>
                 <p style="font-size: 0.9em; color: #7f8c8d;">Product of John Ndelembi</p>
             </div>
         </body>
