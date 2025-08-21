@@ -2,6 +2,9 @@ import os
 import logging
 import subprocess
 import sys
+import json
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional
 
 from PIL.TiffImagePlugin import TRANSFERFUNCTION
 
@@ -70,14 +73,1208 @@ import feedparser
 import re
 from datetime import datetime
 
+# Database imports
+try:
+    from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, ForeignKey, UniqueConstraint
+    from sqlalchemy.ext.declarative import declarative_base
+    from sqlalchemy.orm import sessionmaker, relationship
+    from sqlalchemy.sql import func
+    DB_AVAILABLE = True
+    logger.info("SQLAlchemy database libraries loaded successfully")
+except ImportError as e:
+    DB_AVAILABLE = False
+    logger.warning(f"SQLAlchemy not available: {e}")
+    logger.warning("Database functionality will be disabled.")
+
 # Load environment variables from .env file
 load_dotenv()
 
+# === DATABASE SETUP ===
+if DB_AVAILABLE:
+    Base = declarative_base()
+    
+    class Employee(Base):
+        __tablename__ = 'employees'
+        
+        id = Column(Integer, primary_key=True)
+        name = Column(String(100), nullable=False)
+        email = Column(String(100), unique=True, nullable=False)
+        department = Column(String(50))
+        password_hash = Column(String(255), nullable=False)  # Store hashed passwords
+        role = Column(String(20), default='client')  # 'admin' or 'client'
+        is_active = Column(Boolean, default=True)
+        created_at = Column(DateTime, default=func.now())
+        updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+        
+        # Relationship
+        meal_selections = relationship("MealSelection", back_populates="employee")
+    
+    class MealSelection(Base):
+        __tablename__ = 'meal_selections'
+        
+        id = Column(Integer, primary_key=True)
+        employee_id = Column(Integer, ForeignKey('employees.id'), nullable=False)
+        week_start_date = Column(DateTime, nullable=False)  # Monday of the week
+        monday_meal = Column(Text)
+        tuesday_meal = Column(Text)
+        wednesday_meal = Column(Text)
+        thursday_meal = Column(Text)
+        friday_meal = Column(Text)
+        special_dietary_requirements = Column(Text)
+        submitted_at = Column(DateTime, default=func.now())
+        is_submitted = Column(Boolean, default=False)
+        
+        # Relationship
+        employee = relationship("Employee", back_populates="meal_selections")
+    
+    class MealReminder(Base):
+        __tablename__ = 'meal_reminders'
+        
+        id = Column(Integer, primary_key=True)
+        employee_id = Column(Integer, ForeignKey('employees.id'), nullable=False)
+        week_start_date = Column(DateTime, nullable=False)
+        reminder_sent_at = Column(DateTime, default=func.now())
+        reminder_type = Column(String(20), default='weekly')  # weekly, reminder, final
+        
+        # Relationship
+        employee = relationship("Employee")
+    
+    class MealOptions(Base):
+        __tablename__ = 'meal_options'
+        
+        id = Column(Integer, primary_key=True)
+        name = Column(String(100), nullable=False)
+        day = Column(String(20), nullable=False)  # monday, tuesday, wednesday, thursday, friday
+        is_active = Column(Boolean, default=True)
+        created_by = Column(Integer, ForeignKey('employees.id'), nullable=False)
+        created_at = Column(DateTime, default=func.now())
+        updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+        
+        # Relationship
+        creator = relationship("Employee")
+        
+        # Unique constraint to prevent duplicate meal names for the same day
+        __table_args__ = (UniqueConstraint('name', 'day', name='unique_meal_per_day'),)
+    
+    # Database setup
+    def setup_database():
+        """Setup the database and create tables"""
+        try:
+            # Create data directory if it doesn't exist
+            data_dir = 'data'
+            os.makedirs(data_dir, exist_ok=True)
+            
+            # Create SQLite database
+            db_path = os.path.join(data_dir, 'meal_management.db')
+            engine = create_engine(f'sqlite:///{db_path}')
+            
+            # Create tables
+            Base.metadata.create_all(engine)
+            
+            # Create session factory
+            SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+            
+            logger.info(f"Database setup successfully at {db_path}")
+            return engine, SessionLocal
+            
+        except Exception as e:
+            logger.error(f"Database setup failed: {e}")
+            return None, None
+    
+    # Initialize database
+    db_engine, SessionLocal = setup_database()
+    
+    def get_db_session():
+        """Get database session"""
+        if SessionLocal:
+            return SessionLocal()
+        return None
 
+# === AUTHENTICATION FUNCTIONS ===
+import hashlib
+import secrets
 
+def hash_password(password: str) -> str:
+    """Hash a password using SHA-256"""
+    return hashlib.sha256(password.encode()).hexdigest()
 
+def verify_password(password: str, hashed_password: str) -> bool:
+    """Verify a password against its hash"""
+    return hash_password(password) == hashed_password
 
+def authenticate_employee(name: str, password: str) -> Dict:
+    """Authenticate an employee by name and password"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Find employee by name (case-insensitive)
+        employee = session.query(Employee).filter(
+            Employee.name.ilike(name),
+            Employee.is_active == True
+        ).first()
+        
+        if not employee:
+            return {"success": False, "error": "Employee not found or inactive"}
+        
+        # Verify password
+        if not verify_password(password, employee.password_hash):
+            return {"success": False, "error": "Invalid password"}
+        
+        # Get available meal options
+        meal_options = get_meal_options_by_day()
+        
+        logger.info(f"Employee authenticated: {employee.name}")
+        return {
+            "success": True,
+            "message": f"Welcome back, {employee.name}!",
+            "employee": {
+                "id": employee.id,
+                "name": employee.name,
+                "email": employee.email,
+                "department": employee.department,
+                "role": employee.role
+            },
+            "meal_options": meal_options
+        }
+        
+    except Exception as e:
+        logger.error(f"Error authenticating employee: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
 
+def add_employee_with_password(name: str, email: str, password: str, department: str = "General") -> Dict:
+    """Add a new employee with password to the meal management system"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Check if employee already exists
+        existing = session.query(Employee).filter(Employee.email == email).first()
+        if existing:
+            return {"success": False, "error": f"Employee with email {email} already exists"}
+        
+        # Hash the password
+        password_hash = hash_password(password)
+        
+        # Create new employee
+        new_employee = Employee(
+            name=name,
+            email=email,
+            password_hash=password_hash,
+            department=department
+        )
+        
+        session.add(new_employee)
+        session.commit()
+        
+        logger.info(f"Added employee with password: {name} ({email})")
+        return {
+            "success": True,
+            "message": f"Employee {name} added successfully with password",
+            "employee_id": new_employee.id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error adding employee with password: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def create_admin_user(name: str, email: str, password: str, department: str = "Management") -> Dict:
+    """Create an admin user with full system access"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Check if employee already exists
+        existing = session.query(Employee).filter(Employee.email == email).first()
+        if existing:
+            return {"success": False, "error": f"Employee with email {email} already exists"}
+        
+        # Hash the password
+        password_hash = hash_password(password)
+        
+        # Create admin employee
+        admin_employee = Employee(
+            name=name,
+            email=email,
+            password_hash=password_hash,
+            department=department,
+            role='admin'
+        )
+        
+        session.add(admin_employee)
+        session.commit()
+        
+        logger.info(f"Created admin user: {name} ({email})")
+        return {
+            "success": True,
+            "message": f"Admin user {name} created successfully",
+            "employee_id": admin_employee.id,
+            "role": "admin"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error creating admin user: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def promote_to_admin(employee_email: str, admin_password: str) -> Dict:
+    """Promote a client to admin (requires admin authentication)"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Find the employee to promote
+        employee = session.query(Employee).filter(Employee.email == employee_email).first()
+        if not employee:
+            return {"success": False, "error": f"Employee with email {employee_email} not found"}
+        
+        # Check if already admin
+        if employee.role == 'admin':
+            return {"success": False, "error": f"Employee {employee.name} is already an admin"}
+        
+        # Update role to admin
+        employee.role = 'admin'
+        session.commit()
+        
+        logger.info(f"Promoted {employee.name} to admin")
+        return {
+            "success": True,
+            "message": f"Employee {employee.name} promoted to admin successfully",
+            "employee_id": employee.id,
+            "new_role": "admin"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error promoting to admin: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def get_all_employees_admin() -> List[Dict]:
+    """Get all employees (admin only)"""
+    if not DB_AVAILABLE:
+        return []
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return []
+        
+        employees = session.query(Employee).all()
+        
+        return [
+            {
+                "id": emp.id,
+                "name": emp.name,
+                "email": emp.email,
+                "department": emp.department,
+                "role": emp.role,
+                "is_active": emp.is_active,
+                "created_at": emp.created_at.isoformat() if emp.created_at else None
+            }
+            for emp in employees
+        ]
+        
+    except Exception as e:
+        logger.error(f"Error getting all employees: {e}")
+        return []
+    finally:
+        if session:
+            session.close()
+
+def get_complete_meal_summary_admin(week_start_date: str = None) -> Dict:
+    """Get complete meal summary for all employees (admin only)"""
+    if not week_start_date:
+        week_start_date = get_current_week_start()
+    
+    result = get_weekly_meal_summary(week_start_date)
+    
+    if result["success"]:
+        data = result["data"]
+        
+        # Add admin-specific information
+        admin_summary = {
+            "week_start": data["week_start"],
+            "total_employees": data["total_employees"],
+            "submitted_count": data["submitted_count"],
+            "pending_count": data["pending_count"],
+            "completion_rate": (data["submitted_count"]/data["total_employees"]*100) if data["total_employees"] > 0 else 0,
+            "employees": []
+        }
+        
+        for emp in data["employees"]:
+            # Get employee role
+            session = get_db_session()
+            if session:
+                employee = session.query(Employee).filter(Employee.email == emp["email"]).first()
+                emp["role"] = employee.role if employee else "unknown"
+                session.close()
+            
+            admin_summary["employees"].append(emp)
+        
+        return {
+            "success": True,
+            "message": "Complete meal summary retrieved successfully",
+            "data": admin_summary
+        }
+    
+    return result
+
+def deactivate_employee(employee_email: str) -> Dict:
+    """Deactivate an employee (admin only)"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Find employee
+        employee = session.query(Employee).filter(Employee.email == employee_email).first()
+        if not employee:
+            return {"success": False, "error": f"Employee with email {employee_email} not found"}
+        
+        # Check if trying to deactivate admin
+        if employee.role == 'admin':
+            return {"success": False, "error": "Cannot deactivate admin users"}
+        
+        # Deactivate employee
+        employee.is_active = False
+        session.commit()
+        
+        logger.info(f"Deactivated employee: {employee.name}")
+        return {
+            "success": True,
+            "message": f"Employee {employee.name} deactivated successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error deactivating employee: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+# === MEAL OPTIONS MANAGEMENT ===
+def add_meal_option(admin_email: str, name: str, day: str) -> Dict:
+    """Add a new meal option for a specific day (admin only)"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Verify admin
+        admin = session.query(Employee).filter(
+            Employee.email == admin_email,
+            Employee.role == 'admin',
+            Employee.is_active == True
+        ).first()
+        
+        if not admin:
+            return {"success": False, "error": "Only active admin users can add meal options"}
+        
+        # Validate day
+        valid_days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+        day_lower = day.lower()
+        if day_lower not in valid_days:
+            return {"success": False, "error": f"Invalid day: {day}. Use Monday, Tuesday, Wednesday, Thursday, or Friday"}
+        
+        # Check if meal option already exists for this day
+        existing = session.query(MealOptions).filter(
+            MealOptions.name == name,
+            MealOptions.day == day_lower
+        ).first()
+        if existing:
+            return {"success": False, "error": f"Meal option '{name}' already exists for {day_lower.title()}"}
+        
+        # Create new meal option
+        new_option = MealOptions(
+            name=name,
+            day=day_lower,
+            created_by=admin.id
+        )
+        
+        session.add(new_option)
+        session.commit()
+        
+        logger.info(f"Added meal option: {name} for {day_lower} by admin {admin.name}")
+        return {
+            "success": True,
+            "message": f"Meal option '{name}' added successfully for {day_lower.title()}",
+            "option_id": new_option.id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error adding meal option: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def get_meal_options(include_inactive: bool = False) -> List[Dict]:
+    """Get all available meal options"""
+    if not DB_AVAILABLE:
+        return []
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return []
+        
+        query = session.query(MealOptions)
+        if not include_inactive:
+            query = query.filter(MealOptions.is_active == True)
+        
+        options = query.all()
+        
+        return [
+            {
+                "id": opt.id,
+                "name": opt.name,
+                "day": opt.day,
+                "is_active": opt.is_active,
+                "created_at": opt.created_at.isoformat() if opt.created_at else None
+            }
+            for opt in options
+        ]
+        
+    except Exception as e:
+        logger.error(f"Error getting meal options: {e}")
+        return []
+    finally:
+        if session:
+            session.close()
+
+def update_meal_option(admin_email: str, option_name: str, day: str, new_name: str = None, 
+                      new_day: str = None, is_active: bool = None) -> Dict:
+    """Update a meal option (admin only)"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Verify admin
+        admin = session.query(Employee).filter(
+            Employee.email == admin_email,
+            Employee.role == 'admin',
+            Employee.is_active == True
+        ).first()
+        
+        if not admin:
+            return {"success": False, "error": "Only active admin users can update meal options"}
+        
+        # Validate day
+        valid_days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+        day_lower = day.lower()
+        if day_lower not in valid_days:
+            return {"success": False, "error": f"Invalid day: {day}. Use Monday, Tuesday, Wednesday, Thursday, or Friday"}
+        
+        # Find meal option
+        option = session.query(MealOptions).filter(
+            MealOptions.name == option_name,
+            MealOptions.day == day_lower
+        ).first()
+        if not option:
+            return {"success": False, "error": f"Meal option '{option_name}' not found for {day_lower.title()}"}
+        
+        # Update fields
+        if new_name is not None:
+            # Check if new name already exists for the same day
+            existing = session.query(MealOptions).filter(
+                MealOptions.name == new_name,
+                MealOptions.day == day_lower,
+                MealOptions.id != option.id
+            ).first()
+            if existing:
+                return {"success": False, "error": f"Meal option '{new_name}' already exists for {day_lower.title()}"}
+            option.name = new_name
+        
+        if new_day is not None:
+            # Validate new day
+            new_day_lower = new_day.lower()
+            if new_day_lower not in valid_days:
+                return {"success": False, "error": f"Invalid new day: {new_day}. Use Monday, Tuesday, Wednesday, Thursday, or Friday"}
+            
+            # Check if meal option already exists for the new day
+            existing = session.query(MealOptions).filter(
+                MealOptions.name == option.name,
+                MealOptions.day == new_day_lower,
+                MealOptions.id != option.id
+            ).first()
+            if existing:
+                return {"success": False, "error": f"Meal option '{option.name}' already exists for {new_day_lower.title()}"}
+            
+            option.day = new_day_lower
+        
+        if is_active is not None:
+            option.is_active = is_active
+        
+        option.updated_at = datetime.now()
+        session.commit()
+        
+        logger.info(f"Updated meal option: {option_name} for {day_lower} by admin {admin.name}")
+        return {
+            "success": True,
+            "message": f"Meal option '{option_name}' updated successfully for {day_lower.title()}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating meal option: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def delete_meal_option(admin_email: str, option_name: str, day: str) -> Dict:
+    """Delete a meal option for a specific day (admin only)"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Verify admin
+        admin = session.query(Employee).filter(
+            Employee.email == admin_email,
+            Employee.role == 'admin',
+            Employee.is_active == True
+        ).first()
+        
+        if not admin:
+            return {"success": False, "error": "Only active admin users can delete meal options"}
+        
+        # Validate day
+        valid_days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+        day_lower = day.lower()
+        if day_lower not in valid_days:
+            return {"success": False, "error": f"Invalid day: {day}. Use Monday, Tuesday, Wednesday, Thursday, or Friday"}
+        
+        # Find meal option
+        option = session.query(MealOptions).filter(
+            MealOptions.name == option_name,
+            MealOptions.day == day_lower
+        ).first()
+        if not option:
+            return {"success": False, "error": f"Meal option '{option_name}' not found for {day_lower.title()}"}
+        
+        # Delete the option
+        session.delete(option)
+        session.commit()
+        
+        logger.info(f"Deleted meal option: {option_name} for {day_lower} by admin {admin.name}")
+        return {
+            "success": True,
+            "message": f"Meal option '{option_name}' deleted successfully for {day_lower.title()}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error deleting meal option: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def get_meal_options_by_day() -> Dict:
+    """Get meal options organized by day"""
+    options = get_meal_options()
+    
+    organized_by_day = {}
+    for option in options:
+        day = option['day']
+        if day not in organized_by_day:
+            organized_by_day[day] = []
+        organized_by_day[day].append(option)
+    
+    return organized_by_day
+
+# === STEP-BY-STEP MEAL SELECTION ===
+def get_current_week_start() -> str:
+    """Get the current week's Monday date in YYYY-MM-DD format"""
+    today = datetime.now()
+    days_until_monday = (7 - today.weekday()) % 7
+    if days_until_monday == 0:  # Today is Monday
+        monday = today
+    else:
+        monday = today + timedelta(days=days_until_monday)
+    return monday.strftime("%Y-%m-%d")
+
+def get_meal_status_for_employee(employee_email: str, week_start_date: str = None) -> Dict:
+    """Get meal selection status for an employee"""
+    if not week_start_date:
+        week_start_date = get_current_week_start()
+    
+    result = get_meal_selection(employee_email, week_start_date)
+    
+    if result["success"]:
+        if result["data"] is None:
+            # No selection exists - all days are empty
+            return {
+                "success": True,
+                "week_start": week_start_date,
+                "employee_email": employee_email,
+                "status": "no_selection",
+                "filled_days": [],
+                "empty_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+                "message": "No meal selection found for this week. All days need to be filled."
+            }
+        
+        data = result["data"]
+        filled_days = []
+        empty_days = []
+        
+        # Check each day
+        days = [
+            ("Monday", data["monday_meal"]),
+            ("Tuesday", data["tuesday_meal"]),
+            ("Wednesday", data["wednesday_meal"]),
+            ("Thursday", data["thursday_meal"]),
+            ("Friday", data["friday_meal"])
+        ]
+        
+        for day_name, meal in days:
+            if meal and meal.strip():
+                filled_days.append(day_name)
+            else:
+                empty_days.append(day_name)
+        
+        status = "complete" if len(empty_days) == 0 else "partial"
+        
+        return {
+            "success": True,
+            "week_start": week_start_date,
+            "employee_email": employee_email,
+            "employee_name": data["employee_name"],
+            "status": status,
+            "filled_days": filled_days,
+            "empty_days": empty_days,
+            "special_requirements": data["special_requirements"],
+            "message": f"Selection status: {len(filled_days)} days filled, {len(empty_days)} days empty"
+        }
+    
+    return result
+
+def update_meal_for_day(employee_email: str, day: str, meal_choice: str, week_start_date: str = None) -> Dict:
+    """Update meal selection for a specific day"""
+    if not week_start_date:
+        week_start_date = get_current_week_start()
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Find employee
+        employee = session.query(Employee).filter(Employee.email == employee_email).first()
+        if not employee:
+            return {"success": False, "error": f"Employee with email {employee_email} not found"}
+        
+        # Parse week start date
+        try:
+            week_start = datetime.strptime(week_start_date, "%Y-%m-%d")
+        except ValueError:
+            return {"success": False, "error": "Invalid date format. Use YYYY-MM-DD"}
+        
+        # Get or create meal selection
+        selection = session.query(MealSelection).filter(
+            MealSelection.employee_id == employee.id,
+            MealSelection.week_start_date == week_start
+        ).first()
+        
+        if not selection:
+            # Create new selection
+            selection = MealSelection(
+                employee_id=employee.id,
+                week_start_date=week_start
+            )
+            session.add(selection)
+        
+        # Update the specific day
+        day_mapping = {
+            "monday": "monday_meal",
+            "tuesday": "tuesday_meal", 
+            "wednesday": "wednesday_meal",
+            "thursday": "thursday_meal",
+            "friday": "friday_meal"
+        }
+        
+        day_lower = day.lower()
+        if day_lower not in day_mapping:
+            return {"success": False, "error": f"Invalid day: {day}. Use Monday, Tuesday, Wednesday, Thursday, or Friday"}
+        
+        setattr(selection, day_mapping[day_lower], meal_choice)
+        selection.submitted_at = datetime.now()
+        
+        # Check if all days are filled
+        all_meals = [selection.monday_meal, selection.tuesday_meal, selection.wednesday_meal, 
+                    selection.thursday_meal, selection.friday_meal]
+        selection.is_submitted = all(all_meals) and all(meal.strip() for meal in all_meals)
+        
+        session.commit()
+        
+        return {
+            "success": True,
+            "message": f"Meal for {day} updated successfully",
+            "day": day,
+            "meal": meal_choice,
+            "is_complete": selection.is_submitted
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating meal for day: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def send_meal_confirmation_email(employee_email: str, week_start_date: str = None) -> Dict:
+    """Send confirmation email with meal selections"""
+    if not week_start_date:
+        week_start_date = get_current_week_start()
+    
+    result = get_meal_selection(employee_email, week_start_date)
+    
+    if not result["success"] or result["data"] is None:
+        return {"success": False, "error": "No meal selection found to send confirmation"}
+    
+    data = result["data"]
+    
+    # Prepare email content
+    subject = f"🍽️ Meal Selection Confirmation - Week of {week_start_date}"
+    
+    content = f"""
+    Hello {data['employee_name']}! 👋
+
+    Your meal selections for the week of {week_start_date} have been confirmed.
+
+    📅 **Your Meal Choices:**
+    - Monday: {data['monday_meal'] or 'Not specified'}
+    - Tuesday: {data['tuesday_meal'] or 'Not specified'}
+    - Wednesday: {data['wednesday_meal'] or 'Not specified'}
+    - Thursday: {data['thursday_meal'] or 'Not specified'}
+    - Friday: {data['friday_meal'] or 'Not specified'}
+
+    📝 **Special Dietary Requirements:**
+    {data['special_requirements'] or 'None specified'}
+
+    🕒 **Submitted:** {data['submitted_at'] or 'Not submitted'}
+
+    If you need to make any changes, please log in to the meal management system.
+
+    Thank you for your submission!
+
+    Best regards,
+    Meal Management Team
+    """
+    
+    # Send email
+    email_result = send_email.invoke({
+        "recipient_email": employee_email,
+        "subject": subject,
+        "content": content
+    })
+    
+    if "successfully" in email_result.lower():
+        return {
+            "success": True,
+            "message": f"Confirmation email sent to {employee_email}",
+            "email_content": content
+        }
+    else:
+        return {
+            "success": False,
+            "error": f"Failed to send confirmation email: {email_result}"
+        }
+
+# === MEAL MANAGEMENT FUNCTIONS ===
+def add_employee(name: str, email: str, department: str = "General") -> Dict:
+    """Add a new employee to the meal management system"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Check if employee already exists
+        existing = session.query(Employee).filter(Employee.email == email).first()
+        if existing:
+            return {"success": False, "error": f"Employee with email {email} already exists"}
+        
+        # Create new employee
+        new_employee = Employee(
+            name=name,
+            email=email,
+            department=department
+        )
+        
+        session.add(new_employee)
+        session.commit()
+        
+        logger.info(f"Added employee: {name} ({email})")
+        return {
+            "success": True,
+            "message": f"Employee {name} added successfully",
+            "employee_id": new_employee.id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error adding employee: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def get_employees() -> List[Dict]:
+    """Get all active employees"""
+    if not DB_AVAILABLE:
+        return []
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return []
+        
+        employees = session.query(Employee).filter(Employee.is_active == True).all()
+        
+        return [
+            {
+                "id": emp.id,
+                "name": emp.name,
+                "email": emp.email,
+                "department": emp.department
+            }
+            for emp in employees
+        ]
+        
+    except Exception as e:
+        logger.error(f"Error getting employees: {e}")
+        return []
+    finally:
+        if session:
+            session.close()
+
+def submit_meal_selection(employee_email: str, week_start_date: str, 
+                         monday_meal: str = "", tuesday_meal: str = "", 
+                         wednesday_meal: str = "", thursday_meal: str = "", 
+                         friday_meal: str = "", special_requirements: str = "") -> Dict:
+    """Submit meal selection for an employee for a specific week"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Find employee
+        employee = session.query(Employee).filter(Employee.email == employee_email).first()
+        if not employee:
+            return {"success": False, "error": f"Employee with email {employee_email} not found"}
+        
+        # Parse week start date (expecting YYYY-MM-DD format)
+        try:
+            week_start = datetime.strptime(week_start_date, "%Y-%m-%d")
+        except ValueError:
+            return {"success": False, "error": "Invalid date format. Use YYYY-MM-DD"}
+        
+        # Check if selection already exists for this week
+        existing = session.query(MealSelection).filter(
+            MealSelection.employee_id == employee.id,
+            MealSelection.week_start_date == week_start
+        ).first()
+        
+        if existing:
+            # Update existing selection
+            existing.monday_meal = monday_meal
+            existing.tuesday_meal = tuesday_meal
+            existing.wednesday_meal = wednesday_meal
+            existing.thursday_meal = thursday_meal
+            existing.friday_meal = friday_meal
+            existing.special_dietary_requirements = special_requirements
+            existing.is_submitted = True
+            existing.submitted_at = datetime.now()
+        else:
+            # Create new selection
+            new_selection = MealSelection(
+                employee_id=employee.id,
+                week_start_date=week_start,
+                monday_meal=monday_meal,
+                tuesday_meal=tuesday_meal,
+                wednesday_meal=wednesday_meal,
+                thursday_meal=thursday_meal,
+                friday_meal=friday_meal,
+                special_dietary_requirements=special_requirements,
+                is_submitted=True
+            )
+            session.add(new_selection)
+        
+        session.commit()
+        
+        logger.info(f"Meal selection submitted for {employee.name} for week starting {week_start_date}")
+        return {
+            "success": True,
+            "message": f"Meal selection submitted successfully for {employee.name}",
+            "week_start": week_start_date
+        }
+        
+    except Exception as e:
+        logger.error(f"Error submitting meal selection: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def get_meal_selection(employee_email: str, week_start_date: str) -> Dict:
+    """Get meal selection for an employee for a specific week"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Find employee
+        employee = session.query(Employee).filter(Employee.email == employee_email).first()
+        if not employee:
+            return {"success": False, "error": f"Employee with email {employee_email} not found"}
+        
+        # Parse week start date
+        try:
+            week_start = datetime.strptime(week_start_date, "%Y-%m-%d")
+        except ValueError:
+            return {"success": False, "error": "Invalid date format. Use YYYY-MM-DD"}
+        
+        # Get meal selection
+        selection = session.query(MealSelection).filter(
+            MealSelection.employee_id == employee.id,
+            MealSelection.week_start_date == week_start
+        ).first()
+        
+        if not selection:
+            return {
+                "success": True,
+                "message": "No meal selection found for this week",
+                "data": None
+            }
+        
+        return {
+            "success": True,
+            "message": "Meal selection retrieved successfully",
+            "data": {
+                "employee_name": employee.name,
+                "employee_email": employee.email,
+                "week_start": week_start_date,
+                "monday_meal": selection.monday_meal,
+                "tuesday_meal": selection.tuesday_meal,
+                "wednesday_meal": selection.wednesday_meal,
+                "thursday_meal": selection.thursday_meal,
+                "friday_meal": selection.friday_meal,
+                "special_requirements": selection.special_dietary_requirements,
+                "submitted_at": selection.submitted_at.isoformat() if selection.submitted_at else None,
+                "is_submitted": selection.is_submitted
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting meal selection: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def get_weekly_meal_summary(week_start_date: str) -> Dict:
+    """Get meal summary for all employees for a specific week"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Parse week start date
+        try:
+            week_start = datetime.strptime(week_start_date, "%Y-%m-%d")
+        except ValueError:
+            return {"success": False, "error": "Invalid date format. Use YYYY-MM-DD"}
+        
+        # Get all meal selections for the week
+        selections = session.query(MealSelection).filter(
+            MealSelection.week_start_date == week_start
+        ).all()
+        
+        summary = {
+            "week_start": week_start_date,
+            "total_employees": len(selections),
+            "submitted_count": len([s for s in selections if s.is_submitted]),
+            "pending_count": len([s for s in selections if not s.is_submitted]),
+            "employees": []
+        }
+        
+        for selection in selections:
+            employee = selection.employee
+            summary["employees"].append({
+                "name": employee.name,
+                "email": employee.email,
+                "department": employee.department,
+                "is_submitted": selection.is_submitted,
+                "submitted_at": selection.submitted_at.isoformat() if selection.submitted_at else None,
+                "meals": {
+                    "monday": selection.monday_meal,
+                    "tuesday": selection.tuesday_meal,
+                    "wednesday": selection.wednesday_meal,
+                    "thursday": selection.thursday_meal,
+                    "friday": selection.friday_meal
+                },
+                "special_requirements": selection.special_dietary_requirements
+            })
+        
+        return {
+            "success": True,
+            "message": "Weekly meal summary retrieved successfully",
+            "data": summary
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting weekly meal summary: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
+
+def send_meal_reminders(reminder_time: str = "09:00") -> Dict:
+    """Send meal reminders to all employees"""
+    if not DB_AVAILABLE:
+        return {"success": False, "error": "Database not available"}
+    
+    try:
+        session = get_db_session()
+        if not session:
+            return {"success": False, "error": "Database session not available"}
+        
+        # Get all active employees
+        employees = session.query(Employee).filter(Employee.is_active == True).all()
+        
+        if not employees:
+            return {"success": False, "error": "No active employees found"}
+        
+        # Calculate next week's start date (Monday)
+        today = datetime.now()
+        days_until_monday = (7 - today.weekday()) % 7
+        next_monday = today + timedelta(days=days_until_monday)
+        next_monday = next_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Prepare reminder content
+        reminder_subject = f"🍽️ Meal Selection Reminder - Week of {next_monday.strftime('%B %d, %Y')}"
+        
+        reminder_content = f"""
+        Hello Team! 👋
+
+        This is your weekly meal selection reminder for the week of {next_monday.strftime('%B %d, %Y')}.
+
+        📅 **Please submit your meal preferences for:**
+        - Monday: [Your choice]
+        - Tuesday: [Your choice] 
+        - Wednesday: [Your choice]
+        - Thursday: [Your choice]
+        - Friday: [Your choice]
+
+        🍽️ **Available Options:**
+        - Vegetarian
+        - Non-vegetarian
+        - Vegan
+        - Gluten-free
+        - Custom dietary requirements
+
+        ⏰ **Deadline:** Friday {today.strftime('%B %d')} at {reminder_time}
+
+        📝 **To submit your selection, please respond to this email with:**
+        - Your meal choices for each day
+        - Any special dietary requirements
+        - Any allergies or preferences
+
+        Thank you for your prompt response!
+
+        Best regards,
+        Meal Management Team
+        """
+
+        # Send reminders to each employee
+        sent_count = 0
+        for employee in employees:
+            try:
+                # Use the email sending ability
+                email_result = send_email.invoke({
+                    "recipient_email": employee.email,
+                    "subject": reminder_subject,
+                    "content": reminder_content
+                })
+                
+                if "successfully" in email_result.lower():
+                    # Log the reminder
+                    reminder = MealReminder(
+                        employee_id=employee.id,
+                        week_start_date=next_monday,
+                        reminder_type='weekly'
+                    )
+                    session.add(reminder)
+                    sent_count += 1
+                    
+            except Exception as e:
+                logger.error(f"Error sending reminder to {employee.email}: {e}")
+        
+        session.commit()
+        
+        return {
+            "success": True,
+            "message": f"Meal reminders sent to {sent_count} out of {len(employees)} employees",
+            "next_week_start": next_monday.strftime("%Y-%m-%d"),
+            "sent_count": sent_count,
+            "total_count": len(employees)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error sending meal reminders: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        if session:
+            session.close()
 
 
 # === CONFIGURATION ===
@@ -920,6 +2117,769 @@ def setup_email_schedule(recipient_email: str = "williamjohnie61@gmail.com", tim
     except Exception as e:
         logger.error(f"Error setting up email schedule: {e}")
         return f"Error setting up schedule: {e}"
+
+@tool
+def add_employee_to_meal_system(name: str, email: str, department: str = "General") -> str:
+    """Add a new employee to the meal management system
+    
+    Args:
+        name: Full name of the employee
+        email: Employee's email address
+        department: Employee's department (default: General)
+    """
+    result = add_employee(name, email, department)
+    
+    if result["success"]:
+        return f"✅ {result['message']}\n\n" \
+               f"👤 **Employee Details:**\n" \
+               f"📝 Name: {name}\n" \
+               f"📧 Email: {email}\n" \
+               f"🏢 Department: {department}\n" \
+               f"🆔 Employee ID: {result['employee_id']}"
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def get_employee_list() -> str:
+    """Get list of all active employees in the meal management system"""
+    employees = get_employees()
+    
+    if not employees:
+        return "📋 No active employees found in the meal management system."
+    
+    result = "📋 **Active Employees List:**\n\n"
+    for i, emp in enumerate(employees, 1):
+        result += f"{i}. **{emp['name']}**\n"
+        result += f"   📧 Email: {emp['email']}\n"
+        result += f"   🏢 Department: {emp['department']}\n"
+        result += f"   🆔 ID: {emp['id']}\n\n"
+    
+    result += f"📊 **Total Employees:** {len(employees)}"
+    return result
+
+@tool
+def submit_weekly_meal_selection(employee_email: str, week_start_date: str, 
+                                monday_meal: str = "", tuesday_meal: str = "", 
+                                wednesday_meal: str = "", thursday_meal: str = "", 
+                                friday_meal: str = "", special_requirements: str = "") -> str:
+    """Submit meal selection for an employee for a specific week
+    
+    Args:
+        employee_email: Employee's email address
+        week_start_date: Week start date in YYYY-MM-DD format (Monday)
+        monday_meal: Meal choice for Monday
+        tuesday_meal: Meal choice for Tuesday
+        wednesday_meal: Meal choice for Wednesday
+        thursday_meal: Meal choice for Thursday
+        friday_meal: Meal choice for Friday
+        special_requirements: Any special dietary requirements or allergies
+    """
+    result = submit_meal_selection(
+        employee_email, week_start_date, monday_meal, tuesday_meal,
+        wednesday_meal, thursday_meal, friday_meal, special_requirements
+    )
+    
+    if result["success"]:
+        return f"✅ {result['message']}\n\n" \
+               f"📅 **Week Starting:** {result['week_start']}\n" \
+               f"📧 **Employee:** {employee_email}\n" \
+               f"🍽️ **Meals Submitted:**\n" \
+               f"   - Monday: {monday_meal or 'Not specified'}\n" \
+               f"   - Tuesday: {tuesday_meal or 'Not specified'}\n" \
+               f"   - Wednesday: {wednesday_meal or 'Not specified'}\n" \
+               f"   - Thursday: {thursday_meal or 'Not specified'}\n" \
+               f"   - Friday: {friday_meal or 'Not specified'}\n" \
+               f"📝 **Special Requirements:** {special_requirements or 'None'}"
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def get_employee_meal_selection(employee_email: str, week_start_date: str) -> str:
+    """Get meal selection for a specific employee for a specific week
+    
+    Args:
+        employee_email: Employee's email address
+        week_start_date: Week start date in YYYY-MM-DD format (Monday)
+    """
+    result = get_meal_selection(employee_email, week_start_date)
+    
+    if result["success"]:
+        if result["data"] is None:
+            return f"📋 No meal selection found for {employee_email} for week starting {week_start_date}"
+        
+        data = result["data"]
+        status = "✅ Submitted" if data["is_submitted"] else "⏳ Pending"
+        
+        return f"🍽️ **Meal Selection for {data['employee_name']}**\n\n" \
+               f"📅 **Week Starting:** {data['week_start']}\n" \
+               f"📧 **Email:** {data['employee_email']}\n" \
+               f"📊 **Status:** {status}\n" \
+               f"🕒 **Submitted:** {data['submitted_at'] or 'Not submitted'}\n\n" \
+               f"🍽️ **Meal Choices:**\n" \
+               f"   - Monday: {data['monday_meal'] or 'Not specified'}\n" \
+               f"   - Tuesday: {data['tuesday_meal'] or 'Not specified'}\n" \
+               f"   - Wednesday: {data['wednesday_meal'] or 'Not specified'}\n" \
+               f"   - Thursday: {data['thursday_meal'] or 'Not specified'}\n" \
+               f"   - Friday: {data['friday_meal'] or 'Not specified'}\n" \
+               f"📝 **Special Requirements:** {data['special_requirements'] or 'None'}"
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def get_weekly_meal_summary_report(week_start_date: str) -> str:
+    """Get a comprehensive meal summary report for all employees for a specific week
+    
+    Args:
+        week_start_date: Week start date in YYYY-MM-DD format (Monday)
+    """
+    result = get_weekly_meal_summary(week_start_date)
+    
+    if result["success"]:
+        data = result["data"]
+        
+        completion_rate = (data['submitted_count']/data['total_employees']*100) if data['total_employees'] > 0 else 0
+        report = f"📊 **Weekly Meal Summary Report**\n\n" \
+                f"📅 **Week Starting:** {data['week_start']}\n" \
+                f"👥 **Total Employees:** {data['total_employees']}\n" \
+                f"✅ **Submitted:** {data['submitted_count']}\n" \
+                f"⏳ **Pending:** {data['pending_count']}\n" \
+                f"📈 **Completion Rate:** {completion_rate:.1f}%\n\n"
+        
+        if data['employees']:
+            report += "👥 **Employee Details:**\n\n"
+            for emp in data['employees']:
+                status = "✅ Submitted" if emp['is_submitted'] else "⏳ Pending"
+                report += f"**{emp['name']}** ({emp['email']})\n"
+                report += f"🏢 Department: {emp['department']}\n"
+                report += f"📊 Status: {status}\n"
+                if emp['submitted_at']:
+                    report += f"🕒 Submitted: {emp['submitted_at']}\n"
+                report += f"🍽️ Meals: {', '.join([meal for meal in emp['meals'].values() if meal]) or 'None specified'}\n"
+                if emp['special_requirements']:
+                    report += f"📝 Special Requirements: {emp['special_requirements']}\n"
+                report += "\n"
+        else:
+            report += "📋 No employee data found for this week."
+        
+        return report
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def send_weekly_meal_reminders(reminder_time: str = "09:00") -> str:
+    """Send meal selection reminders to all active employees for the upcoming week
+    
+    Args:
+        reminder_time: Time to send reminders (default: 09:00)
+    """
+    result = send_meal_reminders(reminder_time)
+    
+    if result["success"]:
+        return f"✅ {result['message']}\n\n" \
+               f"📅 **Next Week Starting:** {result['next_week_start']}\n" \
+               f"⏰ **Reminder Time:** {reminder_time}\n" \
+               f"📧 **Emails Sent:** {result['sent_count']}\n" \
+               f"👥 **Total Employees:** {result['total_count']}\n" \
+               f"📈 **Success Rate:** {(result['sent_count']/result['total_count']*100):.1f}%"
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def add_employee_with_password_tool(name: str, email: str, password: str, department: str = "General") -> str:
+    """Add a new employee with password to the meal management system
+    
+    Args:
+        name: Full name of the employee
+        email: Employee's email address
+        password: Employee's password for authentication
+        department: Employee's department (default: General)
+    """
+    result = add_employee_with_password(name, email, password, department)
+    
+    if result["success"]:
+        return f"✅ {result['message']}\n\n" \
+               f"👤 **Employee Details:**\n" \
+               f"📝 Name: {name}\n" \
+               f"📧 Email: {email}\n" \
+               f"🏢 Department: {department}\n" \
+               f"🔐 Password: [Securely stored]\n" \
+               f"🆔 Employee ID: {result['employee_id']}\n\n" \
+               f"💡 **Next Steps:**\n" \
+               f"- Employee can now log in using their name and password\n" \
+               f"- They will receive weekly meal reminders\n" \
+               f"- They can submit meal selections step by step"
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def authenticate_employee_login(name: str, password: str) -> str:
+    """Authenticate an employee for meal selection
+    
+    Args:
+        name: Employee's full name
+        password: Employee's password
+    """
+    result = authenticate_employee(name, password)
+    
+    if result["success"]:
+        employee = result["employee"]
+        meal_options = result.get("meal_options", {})
+        
+        response = f"✅ {result['message']}\n\n" \
+                   f"👤 **Welcome, {employee['name']}!**\n" \
+                   f"📧 Email: {employee['email']}\n" \
+                   f"🏢 Department: {employee['department']}\n" \
+                   f"👑 Role: {employee['role']}\n\n"
+        
+        # Show available meal options by day
+        if meal_options:
+            response += f"🍽️ **Available Meal Options for This Week:**\n\n"
+            days_order = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+            for day in days_order:
+                if day in meal_options:
+                    response += f"📅 **{day.title()}:**\n"
+                    for option in meal_options[day]:
+                        response += f"  • {option['name']}\n"
+                    response += "\n"
+                else:
+                    response += f"📅 **{day.title()}:**\n"
+                    response += f"  • No meal options available\n\n"
+        else:
+            response += f"🍽️ **No meal options available yet.**\n" \
+                       f"Please contact your admin to add meal options to the system.\n\n"
+        
+        response += f"🍽️ **What would you like to do?**\n" \
+                   f"1. Check your current meal selection status\n" \
+                   f"2. Fill in missing meal choices\n" \
+                   f"3. Update existing meal choices\n" \
+                   f"4. View your complete meal selection\n\n" \
+                   f"Just let me know what you'd like to do!"
+        
+        return response
+    else:
+        return f"❌ Authentication failed: {result['error']}\n\n" \
+               f"💡 **Please check:**\n" \
+               f"- Your name is spelled correctly\n" \
+               f"- Your password is correct\n" \
+               f"- You are an active employee in the system"
+
+@tool
+def check_meal_selection_status(employee_email: str, week_start_date: str = None) -> str:
+    """Check the status of meal selections for an employee
+    
+    Args:
+        employee_email: Employee's email address
+        week_start_date: Week start date in YYYY-MM-DD format (optional, defaults to current week)
+    """
+    result = get_meal_status_for_employee(employee_email, week_start_date)
+    
+    if result["success"]:
+        if result["status"] == "no_selection":
+            return f"📋 **Meal Selection Status**\n\n" \
+                   f"👤 **Employee:** {employee_email}\n" \
+                   f"📅 **Week Starting:** {result['week_start']}\n" \
+                   f"📊 **Status:** No meal selection found\n\n" \
+                   f"❌ **Empty Days:** {', '.join(result['empty_days'])}\n" \
+                   f"✅ **Filled Days:** None\n\n" \
+                   f"💡 **Next Steps:**\n" \
+                   f"You need to fill in meal choices for all 5 days (Monday-Friday).\n" \
+                   f"Would you like to start filling in your meal choices?"
+        
+        elif result["status"] == "partial":
+            return f"📋 **Meal Selection Status**\n\n" \
+                   f"👤 **Employee:** {result['employee_name']}\n" \
+                   f"📅 **Week Starting:** {result['week_start']}\n" \
+                   f"📊 **Status:** Partially filled\n\n" \
+                   f"✅ **Filled Days:** {', '.join(result['filled_days'])}\n" \
+                   f"❌ **Empty Days:** {', '.join(result['empty_days'])}\n" \
+                   f"📝 **Special Requirements:** {result['special_requirements'] or 'None'}\n\n" \
+                   f"💡 **Next Steps:**\n" \
+                   f"You still need to fill in: {', '.join(result['empty_days'])}\n" \
+                   f"Would you like to fill in the missing days?"
+        
+        else:  # complete
+            return f"📋 **Meal Selection Status**\n\n" \
+                   f"👤 **Employee:** {result['employee_name']}\n" \
+                   f"📅 **Week Starting:** {result['week_start']}\n" \
+                   f"📊 **Status:** ✅ Complete!\n\n" \
+                   f"✅ **All Days Filled:** {', '.join(result['filled_days'])}\n" \
+                   f"📝 **Special Requirements:** {result['special_requirements'] or 'None'}\n\n" \
+                   f"🎉 **Great job!** Your meal selection is complete for this week.\n" \
+                   f"Would you like to view your complete selection or make any changes?"
+    
+    return f"❌ Error: {result['error']}"
+
+@tool
+def fill_meal_for_day(employee_email: str, day: str, meal_choice: str, week_start_date: str = None) -> str:
+    """Fill in meal choice for a specific day
+    
+    Args:
+        employee_email: Employee's email address
+        day: Day of the week (Monday, Tuesday, Wednesday, Thursday, Friday)
+        meal_choice: Meal choice for that day
+        week_start_date: Week start date in YYYY-MM-DD format (optional, defaults to current week)
+    """
+    result = update_meal_for_day(employee_email, day, week_start_date, meal_choice)
+    
+    if result["success"]:
+        response = f"✅ {result['message']}\n\n" \
+                   f"📅 **Day:** {result['day']}\n" \
+                   f"🍽️ **Meal Choice:** {result['meal']}\n" \
+                   f"📊 **Status:** {'Complete' if result['is_complete'] else 'In Progress'}\n\n"
+        
+        if result['is_complete']:
+            response += f"🎉 **Congratulations!** Your meal selection is now complete!\n\n" \
+                       f"💡 **Next Steps:**\n" \
+                       f"- Would you like to view your complete selection?\n" \
+                       f"- Should I send you a confirmation email?\n" \
+                       f"- Would you like to make any changes?"
+        else:
+            response += f"💡 **Next Steps:**\n" \
+                       f"- Would you like to fill in another day?\n" \
+                       f"- Should I show you which days are still empty?\n" \
+                       f"- Would you like to view your current progress?"
+        
+        return response
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def send_meal_confirmation_to_employee(employee_email: str, week_start_date: str = None) -> str:
+    """Send confirmation email with meal selections to an employee
+    
+    Args:
+        employee_email: Employee's email address
+        week_start_date: Week start date in YYYY-MM-DD format (optional, defaults to current week)
+    """
+    result = send_meal_confirmation_email(employee_email, week_start_date)
+    
+    if result["success"]:
+        return f"✅ {result['message']}\n\n" \
+               f"📧 **Email Details:**\n" \
+               f"📧 To: {employee_email}\n" \
+               f"📅 Week: {week_start_date or 'Current week'}\n" \
+               f"📝 Content: Confirmation of meal selections\n\n" \
+               f"📨 **Email Sent Successfully!**\n" \
+               f"The employee will receive a detailed confirmation of their meal choices."
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def interactive_meal_selection_guide() -> str:
+    """Provide a step-by-step guide for interactive meal selection"""
+    return """🍽️ **Interactive Meal Selection Guide**
+
+Welcome to the meal selection system! Here's how to get started:
+
+## 🔐 **Step 1: Authentication**
+First, you need to log in with your name and password:
+- Provide your full name as registered in the system
+- Enter your password
+- Example: "I want to log in as John Smith with password mypassword123"
+
+## 📋 **Step 2: Check Your Status**
+Once logged in, check your current meal selection status:
+- See which days are filled and which are empty
+- View any existing meal choices
+- Check special dietary requirements
+
+## 🍽️ **Step 3: Fill Missing Days**
+Fill in meal choices for empty days:
+- Specify the day (Monday, Tuesday, Wednesday, Thursday, Friday)
+- Provide your meal choice
+- Add any special dietary requirements
+
+## ✅ **Step 4: Complete and Confirm**
+- Review your complete selection
+- Receive confirmation email
+- Make any necessary changes
+
+## 💡 **Available Meal Options:**
+- Vegetarian
+- Non-vegetarian  
+- Vegan
+- Gluten-free
+- Custom dietary requirements
+
+## 📧 **Automatic Features:**
+- Weekly reminder emails every Friday morning
+- Confirmation emails after completion
+- Status tracking and reporting
+
+**Ready to start? Just tell me you want to log in!**"""
+
+@tool
+def create_admin_user_tool(name: str, email: str, password: str, department: str = "Management") -> str:
+    """Create an admin user with full system access (system setup only)
+    
+    Args:
+        name: Full name of the admin
+        email: Admin's email address
+        password: Admin's password
+        department: Admin's department (default: Management)
+    """
+    result = create_admin_user(name, email, password, department)
+    
+    if result["success"]:
+        return f"✅ {result['message']}\n\n" \
+               f"👑 **Admin User Created:**\n" \
+               f"📝 Name: {name}\n" \
+               f"📧 Email: {email}\n" \
+               f"🏢 Department: {department}\n" \
+               f"🔐 Password: [Securely stored]\n" \
+               f"🆔 Employee ID: {result['employee_id']}\n" \
+               f"👑 Role: {result['role']}\n\n" \
+               f"💡 **Admin Capabilities:**\n" \
+               f"- View all employee meal selections\n" \
+               f"- Manage employee accounts\n" \
+               f"- Generate comprehensive reports\n" \
+               f"- Send system-wide reminders\n" \
+               f"- Deactivate employee accounts"
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def get_all_employees_admin_tool() -> str:
+    """Get complete list of all employees with roles and status (admin only)"""
+    employees = get_all_employees_admin()
+    
+    if not employees:
+        return "📋 No employees found in the system."
+    
+    result = "📋 **Complete Employee List (Admin View):**\n\n"
+    
+    # Separate admins and clients
+    admins = [emp for emp in employees if emp['role'] == 'admin']
+    clients = [emp for emp in employees if emp['role'] == 'client']
+    
+    if admins:
+        result += "👑 **Admin Users:**\n"
+        for i, emp in enumerate(admins, 1):
+            status = "✅ Active" if emp['is_active'] else "❌ Inactive"
+            result += f"{i}. **{emp['name']}** ({emp['email']})\n"
+            result += f"   🏢 Department: {emp['department']}\n"
+            result += f"   👑 Role: {emp['role']}\n"
+            result += f"   📊 Status: {status}\n"
+            result += f"   📅 Created: {emp['created_at']}\n\n"
+    
+    if clients:
+        result += "👥 **Client Users:**\n"
+        for i, emp in enumerate(clients, 1):
+            status = "✅ Active" if emp['is_active'] else "❌ Inactive"
+            result += f"{i}. **{emp['name']}** ({emp['email']})\n"
+            result += f"   🏢 Department: {emp['department']}\n"
+            result += f"   👤 Role: {emp['role']}\n"
+            result += f"   📊 Status: {status}\n"
+            result += f"   📅 Created: {emp['created_at']}\n\n"
+    
+    result += f"📊 **Summary:**\n"
+    result += f"👑 Admins: {len(admins)}\n"
+    result += f"👥 Clients: {len(clients)}\n"
+    result += f"📈 Total: {len(employees)}"
+    
+    return result
+
+@tool
+def get_complete_meal_summary_admin_tool(week_start_date: str = None) -> str:
+    """Get comprehensive meal summary for all employees (admin only)
+    
+    Args:
+        week_start_date: Week start date in YYYY-MM-DD format (optional, defaults to current week)
+    """
+    result = get_complete_meal_summary_admin(week_start_date)
+    
+    if result["success"]:
+        data = result["data"]
+        
+        report = f"📊 **Complete Meal Summary Report (Admin View)**\n\n" \
+                f"📅 **Week Starting:** {data['week_start']}\n" \
+                f"👥 **Total Employees:** {data['total_employees']}\n" \
+                f"✅ **Submitted:** {data['submitted_count']}\n" \
+                f"⏳ **Pending:** {data['pending_count']}\n" \
+                f"📈 **Completion Rate:** {data['completion_rate']:.1f}%\n\n"
+        
+        if data['employees']:
+            report += "👥 **Employee Details:**\n\n"
+            for emp in data['employees']:
+                status = "✅ Submitted" if emp['is_submitted'] else "⏳ Pending"
+                role_emoji = "👑" if emp['role'] == 'admin' else "👤"
+                report += f"{role_emoji} **{emp['name']}** ({emp['email']})\n"
+                report += f"🏢 Department: {emp['department']}\n"
+                report += f"👑 Role: {emp['role']}\n"
+                report += f"📊 Status: {status}\n"
+                if emp['submitted_at']:
+                    report += f"🕒 Submitted: {emp['submitted_at']}\n"
+                report += f"🍽️ Meals: {', '.join([meal for meal in emp['meals'].values() if meal]) or 'None specified'}\n"
+                if emp['special_requirements']:
+                    report += f"📝 Special Requirements: {emp['special_requirements']}\n"
+                report += "\n"
+        else:
+            report += "📋 No employee data found for this week."
+        
+        return report
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def deactivate_employee_tool(employee_email: str) -> str:
+    """Deactivate an employee account (admin only)
+    
+    Args:
+        employee_email: Email of the employee to deactivate
+    """
+    result = deactivate_employee(employee_email)
+    
+    if result["success"]:
+        return f"✅ {result['message']}\n\n" \
+               f"📧 **Employee Email:** {employee_email}\n" \
+               f"📊 **Status:** Deactivated\n\n" \
+               f"💡 **Note:**\n" \
+               f"- Employee can no longer log in\n" \
+               f"- They will not receive meal reminders\n" \
+               f"- Their historical data is preserved\n" \
+               f"- Admin can reactivate them if needed"
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def system_setup_guide() -> str:
+    """Provide a complete guide for setting up the meal management system"""
+    return """🏗️ **Meal Management System Setup Guide**
+
+## 🚀 **Initial Setup (One-time)**
+
+### **Step 1: Create First Admin**
+The system needs at least one admin user to manage everything:
+```
+"Create admin user John Manager with email john.manager@company.com and password admin123"
+```
+
+### **Step 2: Add Employees (Admin Only)**
+Once you have an admin account, add employees:
+```
+"Add employee Sarah Johnson with email sarah.johnson@company.com and password sarah123"
+```
+
+## 👥 **User Roles**
+
+### **👑 Admin Users:**
+- **Full System Access:** View all employee data
+- **Employee Management:** Add, deactivate, promote users
+- **Comprehensive Reports:** See all meal selections
+- **System Control:** Send reminders, manage settings
+
+### **👤 Client Users:**
+- **Personal Access:** Only their own meal selections
+- **Meal Management:** Submit and update their choices
+- **Status Viewing:** Check their own progress
+- **Email Notifications:** Receive reminders and confirmations
+
+## 🔐 **Authentication Flow**
+
+### **For New Users:**
+1. **Admin adds them:** "Add employee [name] with email [email] and password [password]"
+2. **User logs in:** "I want to log in as [name] with password [password]"
+3. **User starts meal selection:** Follow the interactive guide
+
+### **For Existing Users:**
+1. **User logs in:** "I want to log in as [name] with password [password]"
+2. **Check status:** "Check my meal status"
+3. **Fill meals:** "Fill [day] meal as [choice]"
+4. **Complete:** "Send me a confirmation email"
+
+## 📧 **Automated Features**
+
+### **Friday Morning Reminders:**
+- Sent automatically to all active employees
+- Include current status and submission deadline
+- Personalized with employee name
+
+### **Confirmation Emails:**
+- Sent after meal selection completion
+- Include full week's meal choices
+- Professional formatting
+
+## 🛠️ **Admin Commands**
+
+### **Employee Management:**
+- `get_all_employees_admin` - View all users with roles
+- `deactivate_employee` - Deactivate user accounts
+- `promote_to_admin` - Promote client to admin
+
+### **Reporting:**
+- `get_complete_meal_summary_admin` - Full system report
+- `send_weekly_meal_reminders` - Send reminders to all
+
+### **System Control:**
+- `create_admin_user` - Create new admin users
+- `get_employee_list` - View active employees
+
+## 🔒 **Security Features**
+
+- **Password Hashing:** All passwords encrypted
+- **Role-based Access:** Admins vs Clients
+- **Authentication Required:** Login for all actions
+- **Data Isolation:** Clients only see their own data
+
+**Ready to set up your system? Start by creating your first admin user!**"""
+
+@tool
+def add_meal_option_tool(admin_email: str, name: str, day: str) -> str:
+    """Add a new meal option for a specific day (admin only)
+    
+    Args:
+        admin_email: Admin's email address for authentication
+        name: Name of the meal option
+        day: Day of the week (Monday, Tuesday, Wednesday, Thursday, Friday)
+    """
+    result = add_meal_option(admin_email, name, day)
+    
+    if result["success"]:
+        return f"✅ {result['message']}\n\n" \
+               f"🍽️ **New Meal Option:**\n" \
+               f"📝 Name: {name}\n" \
+               f"📅 Day: {day.title()}\n" \
+               f"🆔 Option ID: {result['option_id']}\n\n" \
+               f"💡 **Note:**\n" \
+               f"- This option is now available for {day.title()} only\n" \
+               f"- Users will see it when they log in\n" \
+               f"- You can update or delete it later if needed"
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def get_meal_options_tool() -> str:
+    """Get all available meal options in the system organized by day"""
+    options = get_meal_options()
+    
+    if not options:
+        return "🍽️ No meal options found in the system.\n\n" \
+               "💡 **Note:**\n" \
+               "An admin needs to add meal options first before users can select them."
+    
+    organized_by_day = get_meal_options_by_day()
+    
+    result = "🍽️ **Available Meal Options by Day:**\n\n"
+    
+    days_order = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+    for day in days_order:
+        if day in organized_by_day:
+            result += f"📅 **{day.title()}:**\n"
+            for option in organized_by_day[day]:
+                status = "✅ Active" if option['is_active'] else "❌ Inactive"
+                result += f"  • {option['name']}\n"
+                result += f"    📊 Status: {status}\n"
+            result += "\n"
+        else:
+            result += f"📅 **{day.title()}:**\n"
+            result += f"  • No meal options available\n\n"
+    
+    result += f"📊 **Summary:**\n"
+    result += f"🍽️ Total Options: {len(options)}\n"
+    result += f"📅 Days with Options: {len(organized_by_day)}\n"
+    result += f"✅ Active: {len([opt for opt in options if opt['is_active']])}\n"
+    result += f"❌ Inactive: {len([opt for opt in options if not opt['is_active']])}"
+    
+    return result
+
+@tool
+def update_meal_option_tool(admin_email: str, option_name: str, day: str, new_name: str = None, 
+                           new_day: str = None, is_active: bool = None) -> str:
+    """Update an existing meal option for a specific day (admin only)
+    
+    Args:
+        admin_email: Admin's email address for authentication
+        option_name: Current name of the meal option to update
+        day: Current day of the meal option
+        new_name: New name for the meal option (optional)
+        new_day: New day for the meal option (optional)
+        is_active: Whether the option should be active (optional)
+    """
+    result = update_meal_option(admin_email, option_name, day, new_name, new_day, is_active)
+    
+    if result["success"]:
+        response = f"✅ {result['message']}\n\n" \
+                   f"🍽️ **Updated Meal Option:**\n" \
+                   f"📝 Original Name: {option_name}\n" \
+                   f"📅 Original Day: {day.title()}\n"
+        
+        if new_name:
+            response += f"📝 New Name: {new_name}\n"
+        if new_day:
+            response += f"📅 New Day: {new_day.title()}\n"
+        if is_active is not None:
+            status = "✅ Active" if is_active else "❌ Inactive"
+            response += f"📊 Status: {status}\n"
+        
+        response += f"\n💡 **Note:**\n" \
+                   f"- Changes are immediately available to all users\n" \
+                   f"- Users will see updated options when they log in"
+        
+        return response
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def delete_meal_option_tool(admin_email: str, option_name: str, day: str) -> str:
+    """Delete a meal option for a specific day from the system (admin only)
+    
+    Args:
+        admin_email: Admin's email address for authentication
+        option_name: Name of the meal option to delete
+        day: Day of the meal option to delete
+    """
+    result = delete_meal_option(admin_email, option_name, day)
+    
+    if result["success"]:
+        return f"✅ {result['message']}\n\n" \
+               f"🍽️ **Deleted Meal Option:**\n" \
+               f"📝 Name: {option_name}\n" \
+               f"📅 Day: {day.title()}\n\n" \
+               f"💡 **Note:**\n" \
+               f"- This option is no longer available for {day.title()} selection\n" \
+               f"- Users who previously selected this option for {day.title()} will need to choose a new one\n" \
+               f"- Historical data is preserved but the option is removed from future selections"
+    else:
+        return f"❌ Error: {result['error']}"
+
+@tool
+def show_meal_options_on_login() -> str:
+    """Show what meal options users see when they log in organized by day"""
+    options = get_meal_options_by_day()
+    
+    if not options:
+        return "🍽️ **No meal options available yet.**\n\n" \
+               "💡 **For Admins:**\n" \
+               "You need to add meal options first using:\n" \
+               "'Add meal option Vegetarian for Monday'\n\n" \
+               "💡 **For Users:**\n" \
+               "Please contact your admin to add meal options to the system."
+    
+    result = "🍽️ **Meal Options Available on Login (By Day):**\n\n"
+    result += "When users log in, they will see these available meal options organized by day:\n\n"
+    
+    days_order = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+    for day in days_order:
+        if day in options:
+            result += f"📅 **{day.title()}:**\n"
+            for option in options[day]:
+                result += f"  • {option['name']}\n"
+            result += "\n"
+        else:
+            result += f"📅 **{day.title()}:**\n"
+            result += f"  • No meal options available\n\n"
+    
+    result += "💡 **How Users Select Meals:**\n"
+    result += "Users can only choose from the options available for each specific day:\n"
+    result += "- 'Fill Monday meal as [Monday's available option]'\n"
+    result += "- 'Fill Tuesday meal as [Tuesday's available option]'\n"
+    result += "- 'Fill Wednesday meal as [Wednesday's available option]'\n"
+    result += "etc.\n\n"
+    
+    result += "🔧 **Admin Management:**\n"
+    result += "Only admins can add, update, or delete meal options for specific days."
+    
+    return result
 # === END TOOLS ===
 
 
@@ -958,7 +2918,29 @@ class ConversationalAgent:
             generate_study_plan,
             generate_audio_response,
             send_email,
-            setup_email_schedule
+            setup_email_schedule,
+            add_employee_to_meal_system,
+            get_employee_list,
+            submit_weekly_meal_selection,
+            get_employee_meal_selection,
+            get_weekly_meal_summary_report,
+            send_weekly_meal_reminders,
+            add_employee_with_password_tool,
+            authenticate_employee_login,
+            check_meal_selection_status,
+            fill_meal_for_day,
+            send_meal_confirmation_to_employee,
+            interactive_meal_selection_guide,
+            create_admin_user_tool,
+            get_all_employees_admin_tool,
+            get_complete_meal_summary_admin_tool,
+            deactivate_employee_tool,
+            system_setup_guide,
+            add_meal_option_tool,
+            get_meal_options_tool,
+            update_meal_option_tool,
+            delete_meal_option_tool,
+            show_meal_options_on_login
         ]
 
         # Initialize LLM with tools
@@ -1044,6 +3026,109 @@ class ConversationalAgent:
             "   - Use for: Complex queries, expert guidance, human intervention\n"
             "   - Trigger words: 'expert guidance', 'human help', 'request assistance'\n"
             "   - Example: 'I need expert guidance on this complex topic'\n\n"
+            
+            "**Meal Management Abilities:**\n"
+            "10. **Employee Management** - Add employees to meal system\n"
+            "    - Use for: Adding new employees to meal management\n"
+            "    - Required: name, email, department\n"
+            "    - Example: 'Add John Doe to meal system with email john@company.com'\n\n"
+            
+            "11. **Employee List** - Get list of all active employees\n"
+            "    - Use for: Viewing all employees in meal system\n"
+            "    - Example: 'Show me all employees in the meal system'\n\n"
+            
+            "12. **Meal Selection Submission** - Submit weekly meal choices\n"
+            "    - Use for: Employees submitting their meal preferences\n"
+            "    - Required: employee_email, week_start_date, meal choices\n"
+            "    - Example: 'Submit meal selection for john@company.com for week 2024-01-15'\n\n"
+            
+            "13. **Meal Selection Retrieval** - Get employee's meal choices\n"
+            "    - Use for: Viewing specific employee's meal selections\n"
+            "    - Required: employee_email, week_start_date\n"
+            "    - Example: 'Get meal selection for john@company.com for week 2024-01-15'\n\n"
+            
+            "14. **Weekly Meal Summary** - Get comprehensive meal report\n"
+            "    - Use for: Viewing all employees' meal choices for a week\n"
+            "    - Required: week_start_date\n"
+            "    - Example: 'Get weekly meal summary for week 2024-01-15'\n\n"
+            
+            "15. **Meal Reminders** - Send weekly meal reminders\n"
+            "    - Use for: Sending reminders to all employees\n"
+            "    - Optional: reminder_time (default: 09:00)\n"
+            "    - Example: 'Send meal reminders to all employees'\n\n"
+            
+            "**Interactive Meal Selection Abilities:**\n"
+            "16. **Employee Authentication** - Secure login for employees\n"
+            "    - Use for: Employees logging in to submit meal choices\n"
+            "    - Required: name, password\n"
+            "    - Example: 'Log in as John Smith with password mypassword123'\n\n"
+            
+            "17. **Meal Status Check** - Check employee's meal selection status\n"
+            "    - Use for: Viewing which days are filled/empty\n"
+            "    - Required: employee_email\n"
+            "    - Example: 'Check meal status for john@company.com'\n\n"
+            
+            "18. **Step-by-Step Meal Filling** - Fill meal choices day by day\n"
+            "    - Use for: Employees filling in missing meal choices\n"
+            "    - Required: employee_email, day, meal_choice\n"
+            "    - Example: 'Fill Monday meal as Vegetarian for john@company.com'\n\n"
+            
+            "19. **Meal Confirmation Email** - Send confirmation to employee\n"
+            "    - Use for: Confirming completed meal selections\n"
+            "    - Required: employee_email\n"
+            "    - Example: 'Send confirmation email to john@company.com'\n\n"
+            
+            "20. **Interactive Guide** - Show meal selection process\n"
+            "    - Use for: Helping users understand the meal selection process\n"
+            "    - Example: 'Show me how to use the meal selection system'\n\n"
+            
+            "**Admin Management Abilities:**\n"
+            "21. **Admin User Creation** - Create admin users (system setup)\n"
+            "    - Use for: Initial system setup and admin creation\n"
+            "    - Required: name, email, password, department\n"
+            "    - Example: 'Create admin user John Manager with email john@company.com and password admin123'\n\n"
+            
+            "22. **Complete Employee List** - View all employees with roles (admin only)\n"
+            "    - Use for: Admin viewing all users and their roles\n"
+            "    - Example: 'Show me all employees with their roles'\n\n"
+            
+            "23. **Complete Meal Summary** - View all meal selections (admin only)\n"
+            "    - Use for: Admin viewing everyone's meal choices\n"
+            "    - Optional: week_start_date\n"
+            "    - Example: 'Get complete meal summary for all employees'\n\n"
+            
+            "24. **Employee Deactivation** - Deactivate employee accounts (admin only)\n"
+            "    - Use for: Admin removing employee access\n"
+            "    - Required: employee_email\n"
+            "    - Example: 'Deactivate employee john@company.com'\n\n"
+            
+            "25. **System Setup Guide** - Complete system setup instructions\n"
+            "    - Use for: Understanding how to set up and use the system\n"
+            "    - Example: 'Show me the system setup guide'\n\n"
+            
+            "**Meal Options Management Abilities (Admin Only):**\n"
+            "26. **Add Meal Option** - Add new meal choices for specific days\n"
+            "    - Use for: Admins adding new meal options for specific days\n"
+            "    - Required: admin_email, name, day\n"
+            "    - Example: 'Add meal option Vegetarian for Monday'\n\n"
+            
+            "27. **View Meal Options** - See all available meal options organized by day\n"
+            "    - Use for: Viewing what meal choices are available for each day\n"
+            "    - Example: 'Show me all available meal options'\n\n"
+            
+            "28. **Update Meal Option** - Modify existing meal options for specific days\n"
+            "    - Use for: Admins updating meal option details for specific days\n"
+            "    - Required: admin_email, option_name, day, and any fields to update\n"
+            "    - Example: 'Update meal option Vegetarian for Monday with new name Healthy Vegetarian'\n\n"
+            
+            "29. **Delete Meal Option** - Remove meal options for specific days\n"
+            "    - Use for: Admins removing meal choices for specific days\n"
+            "    - Required: admin_email, option_name, day\n"
+            "    - Example: 'Delete meal option Vegetarian for Monday'\n\n"
+            
+            "30. **Show Login Meal Options** - See what users see when they log in\n"
+            "    - Use for: Previewing the meal options users will see organized by day\n"
+            "    - Example: 'Show me what meal options users see when they log in'\n\n"
             
             "## 📋 COMMUNICATION GUIDELINES\n"
             "**Professional Standards:**\n"
