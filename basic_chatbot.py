@@ -2046,7 +2046,7 @@ def send_email(recipient_email: str = "williamjohnie61@gmail.com", subject: str 
         </head>
         <body>
             <div class="header">
-                <h1><span class="emoji">🤖</span>{subject}</h1>
+                <h1>{subject}</h1>
             </div>
             
             <div class="content" style="text-align: justify;">
