@@ -1,11 +1,11 @@
 version: '3.8'
 
 services:
-  ai-agent:
+  api:
     build: .
-    container_name: ai-content-assistant
+    container_name: ai-agent-api
     ports:
-      - "8501:8501"
+      - "8000:8000"
     environment:
       # API Keys - Set these in your .env file or override here
       - CHATBOT_API_KEY=${CHATBOT_API_KEY}
@@ -17,6 +17,8 @@ services:
       - CHATBOT_MODEL=${CHATBOT_MODEL:-openai:gpt-4}
       # Environment
       - ENV=${ENV:-production}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - REDIS_URL=redis://redis:6379/0
       # LinkedIn API (optional)
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
       - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
@@ -25,31 +27,26 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8501/_stcore/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    # No healthcheck to keep only one API endpoint (/message)
     networks:
       - ai-agent-network
+    depends_on:
+      - redis
 
-  # Optional: Add a Redis service for caching (uncomment if needed)
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: ai-agent-redis
-  #   ports:
-  #     - "6379:6379"
-  #   volumes:
-  #     - redis_data:/data
-  #   restart: unless-stopped
-  #   networks:
-  #     - ai-agent-network
+  redis:
+    image: redis:7-alpine
+    container_name: ai-agent-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - ai-agent-network
 
 networks:
   ai-agent-network:
     driver: bridge
 
-# Optional: Redis volume (uncomment if using Redis)
-# volumes:
-#   redis_data: 
+volumes:
+  redis_data:

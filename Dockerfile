@@ -34,12 +34,11 @@ RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
 USER app
 
-# Expose port for Streamlit
-EXPOSE 8501
+# Install FastAPI stack
+RUN pip install --no-cache-dir fastapi "uvicorn[standard]" aioredis
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8501/_stcore/health')" || exit 1
+# Expose port for FastAPI
+EXPOSE 8000
 
-# Default command to run Streamlit app
-CMD ["streamlit", "run", "streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"] 
+# Default command to run FastAPI app
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
