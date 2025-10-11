@@ -37,6 +37,9 @@ services:
       # Environment
       - ENV=${ENV:-production}
       - ENVIRONMENT=${ENVIRONMENT:-production}
+      # MongoDB Configuration
+      - MONGO_URI=${MONGO_URI}
+      - DATABASE_NAME=${DATABASE_NAME:-test-db-retry}
       # TTS Configuration
       - TTS_VOICE=${TTS_VOICE:-af_heart}
       - TTS_LANG_CODE=${TTS_LANG_CODE:-b}
@@ -79,6 +82,9 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - CHATBOT_MODEL=${CHATBOT_MODEL:-openai:gpt-4}
       - ENVIRONMENT=${ENVIRONMENT:-production}
+      # MongoDB Configuration
+      - MONGO_URI=${MONGO_URI}
+      - DATABASE_NAME=${DATABASE_NAME:-test-db-retry}
       # Celery/Redis
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0

@@ -75,11 +75,11 @@ celery_app.conf.update(
     beat_schedule={
         "cleanup-old-audio-files": {
             "task": "app.celery_tasks.cleanup_old_files_task",
-            "schedule": 3600.0,  # Every hour
+            "schedule": 86400.0,  # Every day
         },
         "health-check": {
             "task": "app.celery_tasks.health_check_task",
-            "schedule": 300.0,  # Every 5 minutes
+            "schedule": 86400.0,  # Every day
         },
     },
 )

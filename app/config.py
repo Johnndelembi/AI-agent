@@ -24,15 +24,17 @@ class Settings:
     # ENVIRONMENT CONFIGURATION
     # ============================================================================
     ENVIRONMENT: str = os.getenv('ENVIRONMENT', 'development').lower()
-    MONGO_URI: str = os.getenv('MONGO_URI', '')
-    DATABASE_NAME: str = os.getenv('DATABASE_NAME', 'test-retry-db')
     IS_DEV: bool = ENVIRONMENT == 'development'
-    DETAILED_LOGGING: str = os.getenv("DETAILED_LOGGING", "False")
     
     # ============================================================================
-    # API KEYS AND SECRETS
+    # DATABASE CONFIGURATION
     # ============================================================================
+    MONGO_URI: str = os.getenv("MONGO_URI")
+    DATABASE_NAME: str = os.getenv("DATABASE_NAME", "test-db-retry")
     
+    # ============================================================================
+    # API KEYS
+    # ============================================================================
     # Chatbot API configuration
     CHATBOT_MODEL: str = os.getenv("CHATBOT_MODEL", "openai:gpt-4")
     CHATBOT_API_KEY: str = os.getenv("CHATBOT_API_KEY", "")
@@ -41,69 +43,13 @@ class Settings:
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
     
-    # Assistant configuration
-    ASSISTANT_ID: str = os.getenv("ASSISTANT_ID")
-    
-    # Security
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "ac9ee594-5928-43cf-97c6-600abff1c9fc")
-    JWT_SECRET: str = os.getenv("JWT_SECRET")
-    JWT_RESET_SECRET: str = os.getenv("JWT_RESET_SECRET")
-    
-    # Email configuration
+    # ============================================================================
+    # EMAIL CONFIGURATION (for Celery tasks)
+    # ============================================================================
     SMTP_SERVER: str = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
     SMTP_PORT: int = int(os.getenv('SMTP_PORT', '587'))
     SENDER_EMAIL: str = os.getenv('SENDER_EMAIL')
     SENDER_PASSWORD: str = os.getenv('SENDER_PASSWORD')
-    COMPANY_EMAIL: str = os.getenv("COMPANY_EMAIL")
-    
-    # Company information
-    COMPANY_PHONE: str = os.getenv("COMPANY_PHONE")
-    COMPANY_WEBSITE: str = os.getenv("COMPANY_WEBSITE")
-    COMPANY_NAME: str = os.getenv("COMPANY_NAME")
-    
-    # ============================================================================
-    # DATABASE CONFIGURATION
-    # ============================================================================
-    MONGO_URI: str = os.getenv("MONGO_URI")
-    DATABASE_NAME: str = os.getenv("DATABASE_NAME", "meal_management_database")
-    
-    # Redis configuration
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://redis:6379/0")
-    REDIS_HOST: str = os.getenv("REDIS_HOST", 'redis')
-    REDIS_PORT: str = os.getenv("REDIS_PORT", '6379')
-    REDIS_MAX_CONNECTIONS: int = int(os.getenv("REDIS_MAX_CONNECTIONS", "50"))
-    REDIS_MAX_MEMORY: str = os.getenv("REDIS_MAX_MEMORY", "2GB")
-    REDIS_EVICTION_POLICY: str = os.getenv("REDIS_EVICTION_POLICY", "allkeys-lru")
-    
-    # Redis Streams settings
-    REDIS_STREAM_MAX_LEN: int = int(os.getenv("REDIS_STREAM_MAX_LEN", "100"))
-    REDIS_STREAM_RETENTION: int = int(os.getenv("REDIS_STREAM_RETENTION", "3600"))
-    REDIS_CONSUMER_BLOCK_MS: int = int(os.getenv("REDIS_CONSUMER_BLOCK_MS", "1000"))
-    
-    # ============================================================================
-    # WHATSAPP INTEGRATION
-    # ============================================================================
-    FACEBOOK_GRAPH_API_URL: str = os.getenv("FACEBOOK_GRAPH_API_URL")
-    FACEBOOK_GRAPH_API_TOKEN: str = os.getenv("FACEBOOK_GRAPH_API_TOKEN")
-    FACEBOOK_GRAPH_WEBHOOK_VERIFICATION_TOKEN: str = os.getenv("FACEBOOK_GRAPH_WEBHOOK_VERIFICATION_TOKEN")
-    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
-    WHATSAPP_BUSINESS_ACCOUNT_ID: str = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
-    
-    # ============================================================================
-    # LANGFUSE CONFIGURATION
-    # ============================================================================
-    LANGFUSE_PUBLIC_KEY: str = os.getenv("LANGFUSE_PUBLIC_KEY")
-    LANGFUSE_SECRET_KEY: str = os.getenv("LANGFUSE_SECRET_KEY")
-    LANGFUSE_HOST: str = os.getenv("LANGFUSE_HOST")
-    
-    # ============================================================================
-    # WEBSOCKET SETTINGS
-    # ============================================================================
-    WS_HEARTBEAT_INTERVAL: int = int(os.getenv("WS_HEARTBEAT_INTERVAL", "30"))
-    WS_MAX_CONNECTIONS_PER_SESSION: int = int(os.getenv("WS_MAX_CONNECTIONS_PER_SESSION", "5"))
-    WS_MESSAGE_QUEUE_SIZE: int = int(os.getenv("WS_MESSAGE_QUEUE_SIZE", "100"))
-    WS_IDLE_TIMEOUT: int = int(os.getenv("WS_IDLE_TIMEOUT", "3600"))
-    WS_MAX_TOTAL_CONNECTIONS: int = int(os.getenv("WS_MAX_TOTAL_CONNECTIONS", "10000"))
     
     # ============================================================================
     # TTS CONFIGURATION
@@ -123,10 +69,6 @@ class Settings:
     CORS_ALLOW_CREDENTIALS: bool = True
     CORS_ALLOW_METHODS: list = ["*"]
     CORS_ALLOW_HEADERS: list = ["*"]
-    
-    # Thread pool settings
-    CHAT_EXECUTOR_WORKERS: int = 4
-    AUDIO_EXECUTOR_WORKERS: int = 2
 
 
 # Create settings instance
@@ -247,8 +189,6 @@ CORS_ORIGINS = settings.CORS_ORIGINS
 CORS_ALLOW_CREDENTIALS = settings.CORS_ALLOW_CREDENTIALS
 CORS_ALLOW_METHODS = settings.CORS_ALLOW_METHODS
 CORS_ALLOW_HEADERS = settings.CORS_ALLOW_HEADERS
-CHAT_EXECUTOR_WORKERS = settings.CHAT_EXECUTOR_WORKERS
-AUDIO_EXECUTOR_WORKERS = settings.AUDIO_EXECUTOR_WORKERS
 TTS_VOICE = settings.TTS_VOICE
 TTS_LANG_CODE = settings.TTS_LANG_CODE
 CHATBOT_MODEL = settings.CHATBOT_MODEL
@@ -351,7 +291,5 @@ __all__ = [
     'CORS_ALLOW_CREDENTIALS',
     'CORS_ALLOW_METHODS',
     'CORS_ALLOW_HEADERS',
-    'CHAT_EXECUTOR_WORKERS',
-    'AUDIO_EXECUTOR_WORKERS',
 ]
 

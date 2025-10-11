@@ -4,6 +4,7 @@ Provides decorators and utilities for HTTP exception handling, logging, and erro
 """
 
 import functools
+import inspect
 import logging
 from typing import Callable, Any, Optional, Type, Union
 from fastapi import HTTPException, status
@@ -134,7 +135,7 @@ def handle_http_errors(
                 raise create_http_error(status_code, error_message, e)
         
         # Return appropriate wrapper based on whether function is async
-        if functools.iscoroutinefunction(func):
+        if inspect.iscoroutinefunction(func):
             return async_wrapper
         return sync_wrapper
     
@@ -182,7 +183,7 @@ def log_errors(
                     raise
                 return None
         
-        if functools.iscoroutinefunction(func):
+        if inspect.iscoroutinefunction(func):
             return async_wrapper
         return sync_wrapper
     

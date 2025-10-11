@@ -3,6 +3,8 @@ import asyncio
 from typing import List, Dict, Any, Optional
 
 from app.services.agent_service import ConversationalAgent
+from app.models.database import Conversation
+from app.config import logger
 
 
 class ChatService:
@@ -22,24 +24,56 @@ class ChatService:
                     self._agent = ConversationalAgent()
         return self._agent
     
-    async def send_message(self, message: str, thread_id: str = "default") -> str:
+    async def send_message(self, message: str, thread_id: str = "default", user_id: Optional[str] = None) -> tuple[str, str]:
         """
         Send a message to the chatbot and get a response.
         
         Args:
             message: The user's message
             thread_id: Thread ID for conversation context
+            user_id: Optional user identifier
             
         Returns:
-            The chatbot's response
+            Tuple of (chatbot's response, message_id)
         """
-        agent = await self._ensure_agent()
-        # Now using native async method!
-        return await agent.stream_conversation(message, thread_id=thread_id)
+        try:
+            # Get or create conversation in MongoDB
+            conversation = await asyncio.to_thread(
+                Conversation.get_or_create,
+                thread_id=thread_id,
+                user_id=user_id
+            )
+            
+            # Store user message in MongoDB
+            _, user_msg_id = await asyncio.to_thread(
+                conversation.add_message,
+                role='user',
+                content=message
+            )
+            
+            # Get AI response
+            agent = await self._ensure_agent()
+            response = await agent.stream_conversation(message, thread_id=thread_id)
+            
+            # Store assistant response in MongoDB and get its message_id
+            _, assistant_msg_id = await asyncio.to_thread(
+                conversation.add_message,
+                role='assistant',
+                content=response
+            )
+            
+            return response, assistant_msg_id
+        except Exception as e:
+            logger.error(f"Error in send_message: {e}")
+            # If MongoDB fails, still try to get response from agent
+            from uuid import uuid4
+            agent = await self._ensure_agent()
+            response = await agent.stream_conversation(message, thread_id=thread_id)
+            return response, str(uuid4())  # Generate fallback message_id
     
     async def get_history(self, thread_id: str = "default") -> List[Dict[str, Any]]:
         """
-        Get chat history for a specific thread.
+        Get chat history for a specific thread from MongoDB.
         
         Args:
             thread_id: Thread ID to retrieve history for
@@ -47,10 +81,17 @@ class ChatService:
         Returns:
             List of messages in the conversation
         """
-        agent = await self._ensure_agent()
-        
         try:
-            # Use async get_state if available, otherwise sync is fast enough
+            # Try to get from MongoDB first
+            conversation = await asyncio.to_thread(
+                lambda: Conversation.objects(thread_id=thread_id).first()
+            )
+            
+            if conversation:
+                return conversation.get_messages_dict()
+            
+            # If not in MongoDB, try LangGraph state (for backward compatibility)
+            agent = await self._ensure_agent()
             config = {"configurable": {"thread_id": thread_id}}
             state = await agent.graph.aget_state(config)
             
@@ -59,28 +100,40 @@ class ChatService:
                 for msg in state.values['messages']:
                     msg_dict = {
                         'type': msg.__class__.__name__,
-                        'content': msg.content if hasattr(msg, 'content') else str(msg)
+                        'content': msg.content if hasattr(msg, 'content') else str(msg),
+                        'timestamp': None
                     }
                     messages.append(msg_dict)
                 return messages
+            
             return []
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error in get_history: {e}")
             return []
     
     async def clear_history(self, thread_id: str = "default") -> None:
         """
-        Clear chat history for a specific thread.
+        Clear chat history for a specific thread from MongoDB and LangGraph state.
         
         Args:
             thread_id: Thread ID to clear history for
         """
-        agent = await self._ensure_agent()
-        
         try:
+            # Clear from MongoDB
+            conversation = await asyncio.to_thread(
+                lambda: Conversation.objects(thread_id=thread_id).first()
+            )
+            if conversation:
+                await asyncio.to_thread(conversation.clear_messages)
+            
+            # Also clear from LangGraph state (for backward compatibility)
+            agent = await self._ensure_agent()
             config = {"configurable": {"thread_id": thread_id}}
-            # Use async update_state
             await agent.graph.aupdate_state(config, {"messages": []})
+            
+            logger.info(f"Cleared history for thread {thread_id}")
         except Exception as e:
+            logger.error(f"Error in clear_history: {e}")
             # If the thread doesn't exist yet, that's fine
             pass
     
@@ -96,4 +149,165 @@ class ChatService:
         """Shutdown the chat service and cleanup resources."""
         async with self._lock:
             self._agent = None
+    
+    async def list_conversations(
+        self, 
+        limit: int = 50, 
+        skip: int = 0, 
+        user_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List conversations with pagination and optional user filtering.
+        
+        Args:
+            limit: Maximum number of conversations to return
+            skip: Number of conversations to skip
+            user_id: Optional filter by user ID
+            
+        Returns:
+            List of conversation summaries
+        """
+        try:
+            def get_conversations():
+                query = Conversation.objects()
+                if user_id:
+                    query = query.filter(user_id=user_id)
+                
+                conversations = query.order_by('-updated_at').skip(skip).limit(limit)
+                
+                return [
+                    {
+                        'thread_id': conv.thread_id,
+                        'user_id': conv.user_id,
+                        'title': conv.title,
+                        'message_count': conv.message_count,
+                        'created_at': conv.created_at.isoformat() if conv.created_at else None,
+                        'updated_at': conv.updated_at.isoformat() if conv.updated_at else None,
+                        'last_message_at': conv.last_message_at.isoformat() if conv.last_message_at else None,
+                        'is_active': conv.is_active,
+                        'is_archived': conv.is_archived,
+                        'tags': conv.tags
+                    }
+                    for conv in conversations
+                ]
+            
+            return await asyncio.to_thread(get_conversations)
+        except Exception as e:
+            logger.error(f"Error listing conversations: {e}")
+            return []
+    
+    async def get_message(self, thread_id: str, message_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific message by thread_id and message_id.
+        
+        Args:
+            thread_id: Thread ID
+            message_id: Message ID
+            
+        Returns:
+            Message dict or None if not found
+        """
+        try:
+            conversation = await asyncio.to_thread(
+                lambda: Conversation.objects(thread_id=thread_id).first()
+            )
+            
+            if not conversation:
+                logger.warning(f"Conversation not found: {thread_id}")
+                return None
+            
+            message = conversation.get_message_by_id(message_id)
+            if not message:
+                logger.warning(f"Message not found: {message_id} in thread {thread_id}")
+            
+            return message
+        except Exception as e:
+            logger.error(f"Error getting message: {e}")
+            return None
+    
+    async def update_message_audio(self, thread_id: str, message_id: str, audio_url: str) -> bool:
+        """
+        Update a message to mark that audio has been generated.
+        
+        Args:
+            thread_id: Thread ID
+            message_id: Message ID
+            audio_url: URL/path to the generated audio
+            
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            conversation = await asyncio.to_thread(
+                lambda: Conversation.objects(thread_id=thread_id).first()
+            )
+            
+            if not conversation:
+                logger.warning(f"Conversation not found: {thread_id}")
+                return False
+            
+            updated = await asyncio.to_thread(
+                conversation.update_message_audio,
+                message_id,
+                audio_url
+            )
+            
+            return updated
+        except Exception as e:
+            logger.error(f"Error updating message audio: {e}")
+            return False
+    
+    async def get_conversation_stats(self, thread_id: str) -> Dict[str, Any]:
+        """
+        Get statistics for a specific conversation.
+        
+        Args:
+            thread_id: Thread ID to get stats for
+            
+        Returns:
+            Dictionary with conversation statistics
+        """
+        try:
+            conversation = await asyncio.to_thread(
+                lambda: Conversation.objects(thread_id=thread_id).first()
+            )
+            
+            if not conversation:
+                return {
+                    'thread_id': thread_id,
+                    'exists': False,
+                    'message': 'Conversation not found'
+                }
+            
+            user_messages = sum(1 for msg in conversation.messages if msg.role in ['user', 'human'])
+            assistant_messages = sum(1 for msg in conversation.messages if msg.role in ['assistant', 'ai'])
+            
+            total_user_chars = sum(len(msg.content) for msg in conversation.messages if msg.role in ['user', 'human'])
+            total_assistant_chars = sum(len(msg.content) for msg in conversation.messages if msg.role in ['assistant', 'ai'])
+            
+            return {
+                'thread_id': thread_id,
+                'exists': True,
+                'user_id': conversation.user_id,
+                'title': conversation.title,
+                'message_count': conversation.message_count,
+                'user_messages': user_messages,
+                'assistant_messages': assistant_messages,
+                'total_user_characters': total_user_chars,
+                'total_assistant_characters': total_assistant_chars,
+                'created_at': conversation.created_at.isoformat() if conversation.created_at else None,
+                'updated_at': conversation.updated_at.isoformat() if conversation.updated_at else None,
+                'last_message_at': conversation.last_message_at.isoformat() if conversation.last_message_at else None,
+                'is_active': conversation.is_active,
+                'is_archived': conversation.is_archived,
+                'tags': conversation.tags,
+                'category': conversation.category
+            }
+        except Exception as e:
+            logger.error(f"Error getting conversation stats: {e}")
+            return {
+                'thread_id': thread_id,
+                'exists': False,
+                'error': str(e)
+            }
 

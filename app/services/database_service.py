@@ -128,7 +128,10 @@ def setup_database():
         
         if connection:
             # Import models to ensure indexes are created
-            from ..models.database import Employee, MealSelection, MealReminder, MealOptions
+            from ..models.database import (
+                Employee, MealSelection, MealReminder, MealOptions, 
+                Conversation
+            )
             
             # Ensure indexes are created for all models
             logger.info("Ensuring MongoDB indexes...")
@@ -136,6 +139,7 @@ def setup_database():
             MealSelection.ensure_indexes()
             MealReminder.ensure_indexes()
             MealOptions.ensure_indexes()
+            Conversation.ensure_indexes()
             logger.info("MongoDB indexes ensured successfully")
             
             return True
