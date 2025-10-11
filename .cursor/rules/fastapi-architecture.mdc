@@ -1,0 +1,58 @@
+---
+alwaysApply: true
+
+this is the project structure, it must be adhered:
+database which is to be used in this project is MongoDB with a connection string passed on the .env file, the global models.py is where all the models are defined,
+the global schema is where all the validation pydantic models are passed.
+utils.py is where all the global utilities which are often used are stored. and dependecies file is where all the global dependecies go to stay where they can be referenced from oter files.
+
+fastapi-project
+├── alembic/
+├── src/
+│   ├── {file}/
+│   │   ├── router.py
+│   │   ├── schemas.py
+│   │   ├── models.py
+│   │   ├── dependencies.py
+│   │   ├── config.py
+│   │   ├── constants.py
+│   │   ├── exceptions.py
+│   │   ├── service.py
+│   │   └── utils.py
+│   ├── {file}/
+│   │   ├── client.py
+│   │   ├── schemas.py
+│   │   ├── config.py
+│   │   ├── constants.py
+│   │   ├── exceptions.py
+│   │   └── utils.py
+│   ├── {file}/
+│   │   ├── router.py
+│   │   ├── schemas.py
+│   │   ├── models.py
+│   │   ├── dependencies.py
+│   │   ├── constants.py
+│   │   ├── exceptions.py
+│   │   ├── service.py
+│   │   └── utils.py
+│   ├── config.py        # global configs
+│   ├── models.py        # global/shared models
+│   ├── exceptions.py    # global exceptions
+│   ├── pagination.py    # shared logic
+│   ├── database.py      # DB connection / engine / session
+│   └── main.py
+├── tests/
+│   ├── auth/
+│   ├── aws/
+│   └── posts/
+├── templates/
+│   └── index.html
+├── requirements/
+│   ├── base.txt
+│   ├── dev.txt
+│   └── prod.txt
+├── .env
+├── .gitignore
+├── logging.ini
+└── alembic.ini
+---

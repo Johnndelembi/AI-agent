@@ -1,0 +1,381 @@
+"""
+Global configuration for the AI Agent application.
+Centralizes all configuration settings for environment, models, TTS, and database.
+"""
+
+import os
+import warnings
+import logging
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv(dotenv_path=".env", override=True)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
+class Settings:
+    """Application settings and configuration."""
+    
+    # ============================================================================
+    # ENVIRONMENT CONFIGURATION
+    # ============================================================================
+    ENVIRONMENT: str = os.getenv('ENVIRONMENT', 'development').lower()
+    MONGO_URI: str = os.getenv('MONGO_URI', '')
+    DATABASE_NAME: str = os.getenv('DATABASE_NAME', 'test-retry-db')
+    IS_DEV: bool = ENVIRONMENT == 'development'
+    DETAILED_LOGGING: str = os.getenv("DETAILED_LOGGING", "False")
+    
+    # ============================================================================
+    # API KEYS AND SECRETS
+    # ============================================================================
+    
+    # Chatbot API configuration
+    CHATBOT_MODEL: str = os.getenv("CHATBOT_MODEL", "openai:gpt-4")
+    CHATBOT_API_KEY: str = os.getenv("CHATBOT_API_KEY", "")
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
+    
+    # Assistant configuration
+    ASSISTANT_ID: str = os.getenv("ASSISTANT_ID")
+    
+    # Security
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "ac9ee594-5928-43cf-97c6-600abff1c9fc")
+    JWT_SECRET: str = os.getenv("JWT_SECRET")
+    JWT_RESET_SECRET: str = os.getenv("JWT_RESET_SECRET")
+    
+    # Email configuration
+    SMTP_SERVER: str = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+    SMTP_PORT: int = int(os.getenv('SMTP_PORT', '587'))
+    SENDER_EMAIL: str = os.getenv('SENDER_EMAIL')
+    SENDER_PASSWORD: str = os.getenv('SENDER_PASSWORD')
+    COMPANY_EMAIL: str = os.getenv("COMPANY_EMAIL")
+    
+    # Company information
+    COMPANY_PHONE: str = os.getenv("COMPANY_PHONE")
+    COMPANY_WEBSITE: str = os.getenv("COMPANY_WEBSITE")
+    COMPANY_NAME: str = os.getenv("COMPANY_NAME")
+    
+    # ============================================================================
+    # DATABASE CONFIGURATION
+    # ============================================================================
+    MONGO_URI: str = os.getenv("MONGO_URI")
+    DATABASE_NAME: str = os.getenv("DATABASE_NAME", "meal_management_database")
+    
+    # Redis configuration
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    REDIS_HOST: str = os.getenv("REDIS_HOST", 'redis')
+    REDIS_PORT: str = os.getenv("REDIS_PORT", '6379')
+    REDIS_MAX_CONNECTIONS: int = int(os.getenv("REDIS_MAX_CONNECTIONS", "50"))
+    REDIS_MAX_MEMORY: str = os.getenv("REDIS_MAX_MEMORY", "2GB")
+    REDIS_EVICTION_POLICY: str = os.getenv("REDIS_EVICTION_POLICY", "allkeys-lru")
+    
+    # Redis Streams settings
+    REDIS_STREAM_MAX_LEN: int = int(os.getenv("REDIS_STREAM_MAX_LEN", "100"))
+    REDIS_STREAM_RETENTION: int = int(os.getenv("REDIS_STREAM_RETENTION", "3600"))
+    REDIS_CONSUMER_BLOCK_MS: int = int(os.getenv("REDIS_CONSUMER_BLOCK_MS", "1000"))
+    
+    # ============================================================================
+    # AWS CONFIGURATION
+    # ============================================================================
+    AWS_ACCESS_KEY_ID: str = os.getenv("AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY")
+    AWS_REGION: str = os.getenv("AWS_REGION")
+    S3_BUCKET_NAME: str = os.getenv("S3_BUCKET_NAME")
+    
+    # ============================================================================
+    # URL CONFIGURATION
+    # ============================================================================
+    BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8000")
+    PRODUCTION_BASE_URL: str = os.getenv("PRODUCTION_BASE_URL", "https://notify-web-assistant-api.beagile.africa")
+    WIDGET_BASE_URL: str = os.getenv("WIDGET_BASE_URL", "https://notify-bubble.beagile.africa")
+    DIRECT_LINK_BASE_URL: str = os.getenv("DIRECT_LINK_BASE_URL", "https://notify-link.beagile.africa")
+    AUTHENTICATION_BACKEND: str = os.getenv("AUTHENTICATION_BACKEND", "https://notify-core.beagile.africa/api/v1")
+    
+    # ============================================================================
+    # WHATSAPP INTEGRATION
+    # ============================================================================
+    FACEBOOK_GRAPH_API_URL: str = os.getenv("FACEBOOK_GRAPH_API_URL")
+    FACEBOOK_GRAPH_API_TOKEN: str = os.getenv("FACEBOOK_GRAPH_API_TOKEN")
+    FACEBOOK_GRAPH_WEBHOOK_VERIFICATION_TOKEN: str = os.getenv("FACEBOOK_GRAPH_WEBHOOK_VERIFICATION_TOKEN")
+    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    WHATSAPP_BUSINESS_ACCOUNT_ID: str = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
+    
+    # ============================================================================
+    # LANGFUSE CONFIGURATION
+    # ============================================================================
+    LANGFUSE_PUBLIC_KEY: str = os.getenv("LANGFUSE_PUBLIC_KEY")
+    LANGFUSE_SECRET_KEY: str = os.getenv("LANGFUSE_SECRET_KEY")
+    LANGFUSE_HOST: str = os.getenv("LANGFUSE_HOST")
+    
+    # ============================================================================
+    # WEBSOCKET SETTINGS
+    # ============================================================================
+    WS_HEARTBEAT_INTERVAL: int = int(os.getenv("WS_HEARTBEAT_INTERVAL", "30"))
+    WS_MAX_CONNECTIONS_PER_SESSION: int = int(os.getenv("WS_MAX_CONNECTIONS_PER_SESSION", "5"))
+    WS_MESSAGE_QUEUE_SIZE: int = int(os.getenv("WS_MESSAGE_QUEUE_SIZE", "100"))
+    WS_IDLE_TIMEOUT: int = int(os.getenv("WS_IDLE_TIMEOUT", "3600"))
+    WS_MAX_TOTAL_CONNECTIONS: int = int(os.getenv("WS_MAX_TOTAL_CONNECTIONS", "10000"))
+    
+    # ============================================================================
+    # DATA DIRECTORIES
+    # ============================================================================
+    DOCS_DIR: str = "src/data/documents"
+    KB_DIR: str = "src/data/website_assistant_database"
+    USER_KB_DIR: str = "src/data/user_knowledge_base"
+    
+    # ============================================================================
+    # TTS CONFIGURATION
+    # ============================================================================
+    TTS_VOICE: str = os.getenv("TTS_VOICE", "af_heart")
+    TTS_LANG_CODE: str = os.getenv("TTS_LANG_CODE", "b")
+    
+    # ============================================================================
+    # APPLICATION SETTINGS
+    # ============================================================================
+    APP_TITLE: str = "AI Agent API"
+    APP_VERSION: str = "2.0.0"
+    APP_DESCRIPTION: str = "FastAPI-based conversational AI assistant with TTS support"
+    
+    # CORS settings
+    CORS_ORIGINS: list = ["*"]
+    CORS_ALLOW_CREDENTIALS: bool = True
+    CORS_ALLOW_METHODS: list = ["*"]
+    CORS_ALLOW_HEADERS: list = ["*"]
+    
+    # Thread pool settings
+    CHAT_EXECUTOR_WORKERS: int = 4
+    AUDIO_EXECUTOR_WORKERS: int = 2
+
+
+# Create settings instance
+settings = Settings()
+
+# Log environment
+logger.info(f"Running in {settings.ENVIRONMENT} mode")
+
+# Validate required API keys in production
+if not settings.IS_DEV:
+    if not settings.CHATBOT_API_KEY and not settings.OPENAI_API_KEY:
+        logger.warning("CHATBOT_API_KEY or OPENAI_API_KEY environment variable is recommended in production")
+    if not settings.TAVILY_API_KEY:
+        logger.warning("TAVILY_API_KEY environment variable is recommended in production")
+
+# ============================================================================
+# MODEL PROVIDER CONFIGURATION
+# ============================================================================
+
+def get_model_provider(model: str) -> str:
+    """Determine the model provider from the model string."""
+    if model.startswith("openai:"):
+        return "openai"
+    elif model.startswith("anthropic:"):
+        return "anthropic"
+    elif model.startswith("google:"):
+        return "google_genai"
+    else:
+        logger.warning(f"Unknown model prefix for {model}, using OpenAI as default")
+        return "openai"
+
+MODEL_PROVIDER = get_model_provider(settings.CHATBOT_MODEL)
+
+# Set environment variables for the selected model provider
+if MODEL_PROVIDER == "openai":
+    os.environ["OPENAI_API_KEY"] = settings.CHATBOT_API_KEY or settings.OPENAI_API_KEY or ""
+elif MODEL_PROVIDER == "anthropic":
+    os.environ["ANTHROPIC_API_KEY"] = settings.ANTHROPIC_API_KEY or settings.CHATBOT_API_KEY or ""
+elif MODEL_PROVIDER == "google_genai":
+    os.environ["GOOGLE_API_KEY"] = settings.GOOGLE_API_KEY or settings.CHATBOT_API_KEY or ""
+
+# Set Tavily API key
+os.environ["TAVILY_API_KEY"] = settings.TAVILY_API_KEY or ""
+
+logger.info(f"Using model: {settings.CHATBOT_MODEL} with provider: {MODEL_PROVIDER}")
+
+# ============================================================================
+# TTS (TEXT-TO-SPEECH) CONFIGURATION
+# ============================================================================
+
+# Suppress PyTorch warnings BEFORE importing torch
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+os.environ['PYTORCH_DISABLE_WARNINGS'] = '1'
+os.environ['TORCH_WARN_ONCE'] = '0'
+os.environ['PYTORCH_WARN_ONCE'] = '0'
+os.environ['KOKORO_REPO_ID'] = 'hexgrad/Kokoro-82M'
+
+# Suppress all warnings at system level
+warnings.filterwarnings("ignore")
+
+# Check TTS availability
+TTS_AVAILABLE = False
+TTS_ENGINE = None
+
+try:
+    # Import torch with warnings suppressed
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import torch
+        torch.set_warn_always(False)
+    
+    # Import kokoro
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from kokoro import KPipeline
+        import soundfile as sf
+    
+    TTS_AVAILABLE = True
+    TTS_ENGINE = "kokoro"
+    logger.info("Kokoro TTS libraries loaded successfully")
+except ImportError as e:
+    logger.warning(f"Kokoro TTS not available: {e}")
+    logger.warning("Audio generation will be disabled")
+except Exception as e:
+    logger.warning(f"Error loading Kokoro TTS: {e}. Audio generation will be disabled")
+
+# Kokoro cache directory
+HOME_DIR = Path.home()
+KOKORO_CACHE_DIR = HOME_DIR / ".cache" / "kokoro"
+KOKORO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Audio output directory
+AUDIO_OUTPUT_DIR = Path("audio_output")
+AUDIO_OUTPUT_DIR.mkdir(exist_ok=True)
+
+# ============================================================================
+# DATABASE CONFIGURATION (MONGODB)
+# ============================================================================
+
+# Data directory for file storage (not for database)
+DATA_DIR = Path('data')
+DATA_DIR.mkdir(exist_ok=True)
+
+# MongoDB connection details (from settings)
+DATABASE_URL = settings.MONGO_URI
+DATABASE_NAME = settings.DATABASE_NAME
+
+if DATABASE_URL:
+    logger.info(f"Using MongoDB database: {DATABASE_NAME}")
+else:
+    logger.warning("MONGO_URI not set - database will not be available")
+
+# Backward compatibility - expose settings as module-level variables
+APP_TITLE = settings.APP_TITLE
+APP_VERSION = settings.APP_VERSION
+APP_DESCRIPTION = settings.APP_DESCRIPTION
+CORS_ORIGINS = settings.CORS_ORIGINS
+CORS_ALLOW_CREDENTIALS = settings.CORS_ALLOW_CREDENTIALS
+CORS_ALLOW_METHODS = settings.CORS_ALLOW_METHODS
+CORS_ALLOW_HEADERS = settings.CORS_ALLOW_HEADERS
+CHAT_EXECUTOR_WORKERS = settings.CHAT_EXECUTOR_WORKERS
+AUDIO_EXECUTOR_WORKERS = settings.AUDIO_EXECUTOR_WORKERS
+TTS_VOICE = settings.TTS_VOICE
+TTS_LANG_CODE = settings.TTS_LANG_CODE
+CHATBOT_MODEL = settings.CHATBOT_MODEL
+CHATBOT_API_KEY = settings.CHATBOT_API_KEY
+TAVILY_API_KEY = settings.TAVILY_API_KEY
+SMTP_SERVER = settings.SMTP_SERVER
+SMTP_PORT = settings.SMTP_PORT
+SENDER_EMAIL = settings.SENDER_EMAIL
+SENDER_PASSWORD = settings.SENDER_PASSWORD
+ENVIRONMENT = settings.ENVIRONMENT
+IS_DEV = settings.IS_DEV
+
+# ============================================================================
+# KOKORO TTS CONFIGURATION
+# ============================================================================
+
+def configure_kokoro_environment():
+    """Configure environment for Kokoro TTS to reduce warnings."""
+    if not TTS_AVAILABLE:
+        return
+    
+    try:
+        import torch
+        torch.set_warn_always(False)
+        
+        # Suppress specific warnings
+        warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.modules.rnn")
+        warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.utils.weight_norm")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="torch")
+        warnings.filterwarnings("ignore", message=".*dropout option adds dropout.*")
+        warnings.filterwarnings("ignore", message=".*weight_norm is deprecated.*")
+        
+        # Configure PyTorch backends
+        if hasattr(torch.backends, 'cudnn'):
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+    except Exception as e:
+        logger.warning(f"Error configuring Kokoro environment: {e}")
+
+# Configure Kokoro environment on import
+configure_kokoro_environment()
+
+# ============================================================================
+# AVAILABLE VOICES
+# ============================================================================
+
+AVAILABLE_VOICES = [
+    "af_heart", "af_angry", "af_sad", "af_happy",
+    "am_heart", "am_angry", "am_sad", "am_happy",
+    "bf_heart", "bf_angry", "bf_sad", "bf_happy",
+    "bm_heart", "bm_angry", "bm_sad", "bm_happy"
+]
+
+# ============================================================================
+# EXPORT ALL SETTINGS
+# ============================================================================
+
+__all__ = [
+    # Settings class and instance
+    'Settings',
+    'settings',
+    
+    # Environment
+    'ENVIRONMENT',
+    'IS_DEV',
+    'logger',
+    
+    # API Keys
+    'CHATBOT_MODEL',
+    'CHATBOT_API_KEY',
+    'TAVILY_API_KEY',
+    'MODEL_PROVIDER',
+    
+    # Email
+    'SMTP_SERVER',
+    'SMTP_PORT',
+    'SENDER_EMAIL',
+    'SENDER_PASSWORD',
+    
+    # TTS
+    'TTS_AVAILABLE',
+    'TTS_ENGINE',
+    'TTS_VOICE',
+    'TTS_LANG_CODE',
+    'KOKORO_CACHE_DIR',
+    'AUDIO_OUTPUT_DIR',
+    'AVAILABLE_VOICES',
+    'configure_kokoro_environment',
+    
+    # Database
+    'DATA_DIR',
+    'DATABASE_URL',
+    'DATABASE_NAME',
+    
+    # Application
+    'APP_TITLE',
+    'APP_VERSION',
+    'APP_DESCRIPTION',
+    'CORS_ORIGINS',
+    'CORS_ALLOW_CREDENTIALS',
+    'CORS_ALLOW_METHODS',
+    'CORS_ALLOW_HEADERS',
+    'CHAT_EXECUTOR_WORKERS',
+    'AUDIO_EXECUTOR_WORKERS',
+]
+

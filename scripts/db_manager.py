@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Database Manager for Meal Management System
-Handles development and production database operations
+Database Manager CLI for Meal Management System.
+Standalone utility for database operations.
 """
 
 import os
@@ -9,44 +9,60 @@ import sys
 import shutil
 import sqlite3
 from datetime import datetime
-from database_config import setup_database, get_db_session, Base
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from app.config import DB_PATH, ENVIRONMENT, DATA_DIR
+from app.services.database_service import setup_database
+
 
 def print_banner():
-    """Print a nice banner for the database manager"""
+    """Print a nice banner for the database manager."""
     print("=" * 60)
     print("           MEAL MANAGEMENT DATABASE MANAGER")
     print("=" * 60)
 
+
 def list_databases():
-    """List all available databases"""
+    """List all available databases."""
     print("\n📁 Available Databases:")
     print("-" * 40)
     
-    data_dir = 'data'
-    if os.path.exists(data_dir):
-        for file in os.listdir(data_dir):
-            if file.endswith('.db'):
-                file_path = os.path.join(data_dir, file)
-                size = os.path.getsize(file_path)
-                modified = datetime.fromtimestamp(os.path.getmtime(file_path))
-                print(f"  📄 {file}")
+    if DATA_DIR.exists():
+        for file in DATA_DIR.iterdir():
+            if file.suffix == '.db':
+                size = file.stat().st_size
+                modified = datetime.fromtimestamp(file.stat().st_mtime)
+                print(f"  📄 {file.name}")
                 print(f"     Size: {size:,} bytes")
                 print(f"     Modified: {modified.strftime('%Y-%m-%d %H:%M:%S')}")
                 print()
     else:
         print("  No data directory found.")
 
+
 def create_production_database():
-    """Create a new production database"""
+    """Create a new production database."""
     print("\n🔧 Creating Production Database...")
     
     try:
-        # Setup production database
-        engine, SessionLocal = setup_database('production')
+        # Temporarily set environment to production
+        old_env = os.environ.get('ENVIRONMENT')
+        os.environ['ENVIRONMENT'] = 'production'
         
-        if engine and SessionLocal:
+        engine, session_local = setup_database()
+        
+        # Restore environment
+        if old_env:
+            os.environ['ENVIRONMENT'] = old_env
+        else:
+            os.environ.pop('ENVIRONMENT', None)
+        
+        if engine and session_local:
             print("✅ Production database created successfully!")
-            print(f"   Location: data/meal_management_production.db")
+            print(f"   Location: {DATA_DIR}/meal_management_production.db")
         else:
             print("❌ Failed to create production database")
             return False
@@ -57,28 +73,28 @@ def create_production_database():
     
     return True
 
+
 def copy_development_to_production():
-    """Copy development database to production"""
+    """Copy development database to production."""
     print("\n📋 Copying Development Database to Production...")
     
-    dev_db = 'data/meal_management.db'
-    prod_db = 'data/meal_management_production.db'
+    dev_db = DATA_DIR / 'meal_management.db'
+    prod_db = DATA_DIR / 'meal_management_production.db'
     
-    if not os.path.exists(dev_db):
+    if not dev_db.exists():
         print("❌ Development database not found!")
         return False
     
     try:
-        # Copy the database file
         shutil.copy2(dev_db, prod_db)
         print("✅ Development database copied to production successfully!")
         print(f"   Source: {dev_db}")
         print(f"   Destination: {prod_db}")
         
         # Verify the copy
-        if os.path.exists(prod_db):
-            dev_size = os.path.getsize(dev_db)
-            prod_size = os.path.getsize(prod_db)
+        if prod_db.exists():
+            dev_size = dev_db.stat().st_size
+            prod_size = prod_db.stat().st_size
             print(f"   Development DB size: {dev_size:,} bytes")
             print(f"   Production DB size: {prod_size:,} bytes")
             
@@ -93,20 +109,21 @@ def copy_development_to_production():
     
     return True
 
+
 def backup_database(environment='development'):
-    """Create a backup of the specified database"""
+    """Create a backup of the specified database."""
     print(f"\n💾 Creating Backup of {environment.title()} Database...")
     
     if environment == 'production':
-        source_db = 'data/meal_management_production.db'
+        source_db = DATA_DIR / 'meal_management_production.db'
         backup_name = f'meal_management_production_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.db'
     else:
-        source_db = 'data/meal_management.db'
+        source_db = DATA_DIR / 'meal_management.db'
         backup_name = f'meal_management_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.db'
     
-    backup_path = os.path.join('data', backup_name)
+    backup_path = DATA_DIR / backup_name
     
-    if not os.path.exists(source_db):
+    if not source_db.exists():
         print(f"❌ {environment.title()} database not found!")
         return False
     
@@ -122,58 +139,67 @@ def backup_database(environment='development'):
     
     return True
 
+
 def test_database_connection(environment='development'):
-    """Test database connection and basic operations"""
+    """Test database connection and basic operations."""
     print(f"\n🔍 Testing {environment.title()} Database Connection...")
     
+    if environment == 'production':
+        db_path = DATA_DIR / 'meal_management_production.db'
+    else:
+        db_path = DATA_DIR / 'meal_management.db'
+    
+    if not db_path.exists():
+        print(f"❌ Database not found: {db_path}")
+        return False
+    
     try:
-        session = get_db_session(environment)
-        if session:
-            # Test basic query
-            result = session.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
-            table_count = result.scalar()
-            
-            print(f"✅ Database connection successful!")
-            print(f"   Tables found: {table_count}")
-            
-            # Test specific tables
-            tables_to_check = ['employees', 'meal_selections', 'meal_reminders', 'meal_options']
-            for table in tables_to_check:
-                try:
-                    result = session.execute(f"SELECT COUNT(*) FROM {table}")
-                    count = result.scalar()
-                    print(f"   {table}: {count} records")
-                except Exception as e:
-                    print(f"   {table}: ❌ Error - {e}")
-            
-            session.close()
-            return True
-        else:
-            print("❌ Failed to get database session")
-            return False
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Test basic query
+        cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+        table_count = cursor.fetchone()[0]
+        
+        print(f"✅ Database connection successful!")
+        print(f"   Tables found: {table_count}")
+        
+        # Test specific tables
+        tables_to_check = ['employees', 'meal_selections', 'meal_reminders', 'meal_options']
+        for table in tables_to_check:
+            try:
+                cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                count = cursor.fetchone()[0]
+                print(f"   {table}: {count} records")
+            except Exception as e:
+                print(f"   {table}: ❌ Error - {e}")
+        
+        conn.close()
+        return True
             
     except Exception as e:
         print(f"❌ Database connection test failed: {e}")
         return False
 
+
 def show_database_info(environment='development'):
-    """Show detailed information about the database"""
+    """Show detailed information about the database."""
     print(f"\n📊 {environment.title()} Database Information:")
     print("-" * 50)
     
     if environment == 'production':
-        db_path = 'data/meal_management_production.db'
+        db_path = DATA_DIR / 'meal_management_production.db'
     else:
-        db_path = 'data/meal_management.db'
+        db_path = DATA_DIR / 'meal_management.db'
     
-    if not os.path.exists(db_path):
+    if not db_path.exists():
         print(f"❌ Database not found: {db_path}")
         return
     
     try:
         # File information
-        size = os.path.getsize(db_path)
-        modified = datetime.fromtimestamp(os.path.getmtime(db_path))
+        size = db_path.stat().st_size
+        modified = datetime.fromtimestamp(db_path.stat().st_mtime)
         
         print(f"📁 File: {db_path}")
         print(f"📏 Size: {size:,} bytes ({size/1024/1024:.2f} MB)")
@@ -199,8 +225,9 @@ def show_database_info(environment='development'):
     except Exception as e:
         print(f"❌ Error reading database info: {e}")
 
+
 def main():
-    """Main function for the database manager"""
+    """Main function for the database manager."""
     print_banner()
     
     while True:
@@ -244,5 +271,7 @@ def main():
         
         input("\nPress Enter to continue...")
 
+
 if __name__ == "__main__":
-    main() 
+    main()
+

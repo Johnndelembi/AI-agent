@@ -4,20 +4,25 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from .api import router as api_router
-from .agent_service import AgentService
-from .cache import AsyncCache
+from app.controllers.chat import router as chat_router
+from app.controllers.audio import router as audio_router
+from app.controllers.health import router as health_router
+from app.controllers.whatsapp import router as whatsapp_router
+from app.controllers.celery_monitor import router as celery_router
+from app.services.chat_service import ChatService
+from app.services.audio_service import AudioService
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Initialize shared services
-    app.state.agent_service = AgentService()
-    app.state.cache = AsyncCache()
-    await app.state.cache.connect()
+    """Manage application lifespan - startup and shutdown."""
+    # Initialize services
+    app.state.chat_service = ChatService()
+    app.state.audio_service = AudioService()
 
-    # Graceful shutdown
+    # Graceful shutdown handler
     stop_event = asyncio.Event()
 
     def _handle_sig():
@@ -31,18 +36,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
-    await app.state.agent_service.shutdown()
-    await app.state.cache.close()
+    # Cleanup services
+    await app.state.chat_service.shutdown()
+    await app.state.audio_service.shutdown()
 
+
+from app.config import APP_TITLE, APP_VERSION, APP_DESCRIPTION, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, CORS_ALLOW_METHODS, CORS_ALLOW_HEADERS
 
 app = FastAPI(
-    title="AI Agent API",
-    version="1.0.0",
+    title=APP_TITLE,
+    version=APP_VERSION,
+    description=APP_DESCRIPTION,
     lifespan=lifespan,
-    docs_url=None,
-    redoc_url=None,
-    openapi_url=None,
 )
 
-# Mount API (single endpoint exposed by router)
-app.include_router(api_router)
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
+    allow_methods=CORS_ALLOW_METHODS,
+    allow_headers=CORS_ALLOW_HEADERS,
+)
+
+# Include routers
+app.include_router(health_router)
+app.include_router(chat_router)
+app.include_router(audio_router)
+app.include_router(whatsapp_router)
+app.include_router(celery_router)

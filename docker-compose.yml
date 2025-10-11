@@ -1,6 +1,25 @@
 version: '3.8'
 
 services:
+  # Redis - Message broker and result backend for Celery
+  redis:
+    image: redis:7-alpine
+    container_name: ai-agent-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    networks:
+      - ai-agent-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # FastAPI Web Server
   api:
     build: .
     container_name: ai-agent-api
@@ -18,35 +37,109 @@ services:
       # Environment
       - ENV=${ENV:-production}
       - ENVIRONMENT=${ENVIRONMENT:-production}
+      # TTS Configuration
+      - TTS_VOICE=${TTS_VOICE:-af_heart}
+      - TTS_LANG_CODE=${TTS_LANG_CODE:-b}
+      # LangSmith (optional)
+      - LANGSMITH_TRACING=${LANGSMITH_TRACING:-false}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-ai_agent}
+      # Celery/Redis Configuration
       - REDIS_URL=redis://redis:6379/0
-      # LinkedIn API (optional)
-      - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
-      - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
-      # Mount for persistent data and logs
+      # Mount for persistent data, logs, and audio output
       - ./data:/app/data
       - ./logs:/app/logs
-    restart: unless-stopped
-    # No healthcheck to keep only one API endpoint (/message)
+      - ./audio_output:/app/audio_output
     networks:
       - ai-agent-network
     depends_on:
-      - redis
-
-  redis:
-    image: redis:7-alpine
-    container_name: ai-agent-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+      redis:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Celery Worker - Handles CPU-intensive and background tasks
+  celery_worker:
+    build: .
+    container_name: ai-agent-celery-worker
+    environment:
+      # API Keys
+      - CHATBOT_API_KEY=${CHATBOT_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - CHATBOT_MODEL=${CHATBOT_MODEL:-openai:gpt-4}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      # Celery/Redis
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./audio_output:/app/audio_output
     networks:
       - ai-agent-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=100 --queues=default,cpu_intensive,io_bound,priority
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Celery Beat - Periodic task scheduler
+  celery_beat:
+    build: .
+    container_name: ai-agent-celery-beat
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - ai-agent-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app beat --loglevel=info
+    restart: unless-stopped
+
+  # Flower - Celery monitoring dashboard
+  flower:
+    build: .
+    container_name: ai-agent-flower
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    networks:
+      - ai-agent-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app flower --port=5555 --basic_auth=admin:${FLOWER_PASSWORD:-admin123}
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
 
 networks:
   ai-agent-network:
     driver: bridge
-
-volumes:
-  redis_data:

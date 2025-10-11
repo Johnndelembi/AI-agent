@@ -1,3 +1,4 @@
+# Core LLM & Agent frameworks
 langchain
 langchain-google-genai
 langchain-openai
@@ -5,29 +6,42 @@ langchain-anthropic
 langchain-community
 langchain-tavily
 langgraph
-streamlit
+
+# Configuration & utilities
 python-dotenv
+
+# Web scraping & search
 tavily-python
 beautifulsoup4
-requests
+httpx  # Async HTTP client (replaced requests for non-blocking I/O)
+feedparser
+
+# Scientific computing (for TTS)
 numpy
 scipy
-# TTS Engines
-# TTS==0.22.0
+
+# Image processing
+Pillow
+
+# TTS engines
 torch
 torchaudio
 soundfile
-# Legacy engines (kept for fallback)
 kokoro
 pyttsx3
+
+# NLP
 spacy
-# News scraping and email dependencies
-schedule
-feedparser
-lxml
-email-validator
+
 # API server
 fastapi
 uvicorn[standard]
-aioredis
-SQLAlchemy
+
+# Celery & Redis (background task processing)
+celery[redis]==5.3.4
+redis>=4.5.2,<5.0.0  # Compatible with Celery 5.3.4
+flower==2.0.1  # Celery monitoring dashboard
+
+# Database
+mongoengine
+dnspython  # Required for MongoDB+SRV connection strings
