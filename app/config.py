@@ -81,23 +81,6 @@ class Settings:
     REDIS_CONSUMER_BLOCK_MS: int = int(os.getenv("REDIS_CONSUMER_BLOCK_MS", "1000"))
     
     # ============================================================================
-    # AWS CONFIGURATION
-    # ============================================================================
-    AWS_ACCESS_KEY_ID: str = os.getenv("AWS_ACCESS_KEY_ID")
-    AWS_SECRET_ACCESS_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY")
-    AWS_REGION: str = os.getenv("AWS_REGION")
-    S3_BUCKET_NAME: str = os.getenv("S3_BUCKET_NAME")
-    
-    # ============================================================================
-    # URL CONFIGURATION
-    # ============================================================================
-    BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8000")
-    PRODUCTION_BASE_URL: str = os.getenv("PRODUCTION_BASE_URL", "https://notify-web-assistant-api.beagile.africa")
-    WIDGET_BASE_URL: str = os.getenv("WIDGET_BASE_URL", "https://notify-bubble.beagile.africa")
-    DIRECT_LINK_BASE_URL: str = os.getenv("DIRECT_LINK_BASE_URL", "https://notify-link.beagile.africa")
-    AUTHENTICATION_BACKEND: str = os.getenv("AUTHENTICATION_BACKEND", "https://notify-core.beagile.africa/api/v1")
-    
-    # ============================================================================
     # WHATSAPP INTEGRATION
     # ============================================================================
     FACEBOOK_GRAPH_API_URL: str = os.getenv("FACEBOOK_GRAPH_API_URL")
@@ -121,13 +104,6 @@ class Settings:
     WS_MESSAGE_QUEUE_SIZE: int = int(os.getenv("WS_MESSAGE_QUEUE_SIZE", "100"))
     WS_IDLE_TIMEOUT: int = int(os.getenv("WS_IDLE_TIMEOUT", "3600"))
     WS_MAX_TOTAL_CONNECTIONS: int = int(os.getenv("WS_MAX_TOTAL_CONNECTIONS", "10000"))
-    
-    # ============================================================================
-    # DATA DIRECTORIES
-    # ============================================================================
-    DOCS_DIR: str = "src/data/documents"
-    KB_DIR: str = "src/data/website_assistant_database"
-    USER_KB_DIR: str = "src/data/user_knowledge_base"
     
     # ============================================================================
     # TTS CONFIGURATION
