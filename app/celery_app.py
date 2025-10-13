@@ -37,12 +37,13 @@ celery_app.conf.update(
     # Task execution settings
     task_acks_late=True,  # Acknowledge after task completes
     task_reject_on_worker_lost=True,
-    task_time_limit=300,  # 5 minutes hard limit
-    task_soft_time_limit=270,  # 4.5 minutes soft limit
+    task_time_limit=300,  # 5 minutes hard limit (overridden per task)
+    task_soft_time_limit=270,  # 4.5 minutes soft limit (overridden per task)
     
     # Worker settings
     worker_prefetch_multiplier=1,  # One task at a time per worker
-    worker_max_tasks_per_child=100,  # Restart worker after 100 tasks
+    worker_max_tasks_per_child=3,  # Restart worker after 3 tasks (prevent memory leaks)
+    worker_max_memory_per_child=500000,  # Restart worker at 500MB (500,000 KB)
     worker_disable_rate_limits=False,
     
     # Result backend settings
@@ -75,7 +76,7 @@ celery_app.conf.update(
     beat_schedule={
         "cleanup-old-audio-files": {
             "task": "app.celery_tasks.cleanup_old_files_task",
-            "schedule": 86400.0,  # Every day
+            "schedule": 1800.0,  # Every 30 minutes
         },
         "health-check": {
             "task": "app.celery_tasks.health_check_task",

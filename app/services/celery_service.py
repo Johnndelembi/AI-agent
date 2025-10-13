@@ -42,29 +42,38 @@ class CeleryService:
         Returns:
             Dict with task_id (and result if wait_for_result=True)
         """
-        # Submit task to Celery (non-blocking)
-        task = generate_tts_task.apply_async(
-            args=[text],
-            kwargs={"voice": voice, "lang_code": lang_code},
-            queue="cpu_intensive"
-        )
-        
-        logger.info(f"🎤 Submitted TTS task: {task.id}")
-        
-        if wait_for_result:
-            # Wait for result asynchronously
-            result = await asyncio.to_thread(task.get, timeout=timeout)
-            return {
-                "task_id": task.id,
-                "status": "completed",
-                "result": result
-            }
-        else:
-            return {
-                "task_id": task.id,
-                "status": "pending",
-                "message": "Task submitted, processing in background"
-            }
+        try:
+            # Submit task to Celery (non-blocking)
+            task = generate_tts_task.apply_async(
+                args=[text],
+                kwargs={"voice": voice, "lang_code": lang_code},
+                queue="cpu_intensive"
+            )
+            
+            logger.info(f"🎤 Submitted TTS task: {task.id} ({len(text)} chars)")
+            
+            if wait_for_result:
+                # Wait for result asynchronously
+                logger.info(f"⏳ Waiting for TTS task {task.id} (timeout: {timeout:.0f}s)")
+                result = await asyncio.to_thread(task.get, timeout=timeout)
+                logger.info(f"✅ TTS task {task.id} completed successfully")
+                return {
+                    "task_id": task.id,
+                    "status": "completed",
+                    "result": result
+                }
+            else:
+                return {
+                    "task_id": task.id,
+                    "status": "pending",
+                    "message": "Task submitted, processing in background"
+                }
+        except asyncio.TimeoutError as e:
+            logger.error(f"⏱️ TTS task {task.id} timed out after {timeout:.0f}s")
+            raise RuntimeError(f"TTS generation timed out after {timeout:.0f}s. Try with shorter text or increase timeout.") from e
+        except Exception as e:
+            logger.error(f"❌ TTS task submission failed: {e}")
+            raise
     
     @staticmethod
     async def submit_email_task(

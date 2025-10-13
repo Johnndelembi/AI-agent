@@ -24,6 +24,24 @@ from app.config import (
 _TTS_PIPELINE_CACHE = {}
 
 
+def clear_tts_cache():
+    """Clear the TTS pipeline cache to free memory."""
+    global _TTS_PIPELINE_CACHE
+    
+    if _TTS_PIPELINE_CACHE:
+        logger.info(f"🧹 Clearing {len(_TTS_PIPELINE_CACHE)} TTS pipeline(s) from cache")
+        
+        # Try to explicitly delete pipeline objects
+        for key in list(_TTS_PIPELINE_CACHE.keys()):
+            try:
+                del _TTS_PIPELINE_CACHE[key]
+            except:
+                pass
+        
+        _TTS_PIPELINE_CACHE.clear()
+        logger.info("✅ TTS cache cleared")
+
+
 def _strip_markdown_to_text(text: str) -> str:
     """
     Convert common Markdown to plain text for clean TTS.
@@ -113,9 +131,22 @@ def get_tts_pipeline(lang_code: str = None):
         
         if cache_key not in _TTS_PIPELINE_CACHE:
             logger.info(f"🔧 Initializing Kokoro TTS pipeline for language code: {lang_to_use}")
+            start_time = time.time()
             
             # Configure environment
             configure_kokoro_environment()
+            
+            # Check for GPU acceleration
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    logger.info("🚀 CUDA GPU detected - using GPU acceleration")
+                elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                    logger.info("🚀 Apple Silicon GPU detected - using MPS acceleration")
+                else:
+                    logger.info("💻 Using CPU for TTS")
+            except:
+                pass
             
             # Import and create pipeline
             with warnings.catch_warnings():
@@ -124,7 +155,8 @@ def get_tts_pipeline(lang_code: str = None):
                 _TTS_PIPELINE_CACHE[cache_key] = KPipeline(lang_code=lang_to_use)
             
             if _TTS_PIPELINE_CACHE[cache_key]:
-                logger.info("✅ Kokoro TTS pipeline initialized successfully")
+                init_time = time.time() - start_time
+                logger.info(f"✅ Kokoro TTS pipeline initialized in {init_time:.2f}s")
             else:
                 logger.error("❌ Kokoro pipeline failed to initialize")
                 return None
@@ -134,6 +166,23 @@ def get_tts_pipeline(lang_code: str = None):
     except Exception as e:
         logger.error(f"Failed to initialize Kokoro pipeline: {e}")
         return None
+
+
+def prewarm_tts_pipeline():
+    """Pre-warm the TTS pipeline on application startup for faster first request."""
+    if TTS_AVAILABLE and TTS_ENGINE == "kokoro":
+        logger.info("🔥 Pre-warming TTS pipeline...")
+        try:
+            pipeline = get_tts_pipeline(TTS_LANG_CODE)
+            if pipeline:
+                # Generate a tiny audio sample to fully initialize the model
+                test_generator = pipeline("Hello", voice=TTS_VOICE)
+                # Consume the generator to trigger model loading
+                for _ in test_generator:
+                    pass
+                logger.info("🎉 TTS pipeline pre-warmed and ready!")
+        except Exception as e:
+            logger.warning(f"Pre-warming failed (will initialize on first use): {e}")
 
 
 def generate_tts_audio(text: str, voice: str = None, lang_code: str = None) -> List[str]:
@@ -202,31 +251,47 @@ def _generate_kokoro_audio(text: str, voice: str, lang_code: str, filepath: str)
         
         # Split text into chunks and synthesize sequentially
         chunks = _split_text_for_tts(sanitized, max_chars_per_chunk=900)
-        logger.info(f"🧩 TTS will synthesize in {len(chunks)} chunk(s)")
+        num_chunks = len(chunks)
+        logger.info(f"🧩 TTS will synthesize in {num_chunks} chunk(s)")
         
+        start_time = time.time()
         all_segments = []
-        total_segments = 0
-        first_segment_logged = False
         
         for ci, chunk_text in enumerate(chunks, start=1):
-            logger.info(f"🗣️ Synthesizing chunk {ci}/{len(chunks)} ({len(chunk_text)} chars)")
+            # Only log for the first chunk and every 5th chunk to reduce overhead
+            if ci == 1:
+                logger.info(f"🗣️ Synthesizing chunk {ci}/{num_chunks} ({len(chunk_text)} chars)")
+            elif num_chunks > 1 and ci % 5 == 0:
+                logger.info(f"🗣️ Processing chunk {ci}/{num_chunks}...")
+            
             generator = pipeline(chunk_text, voice=voice_to_use)
-            for i, (gs, ps, audio) in enumerate(generator):
+            # Process all segments from this chunk
+            for gs, ps, audio in generator:
                 all_segments.append(audio)
-                total_segments += 1
-                if not first_segment_logged:
-                    first_segment_logged = True
-                    logger.info("✅ Model loaded, processing audio segments...")
-                if total_segments % 5 == 0:
-                    logger.info(f"📊 TTS progress: {total_segments} segments accumulated")
+        
+        gen_time = time.time() - start_time
+        logger.info(f"✅ Audio generation completed in {gen_time:.2f}s, concatenating {len(all_segments)} segments...")
         
         if not all_segments:
             logger.warning("No audio segments generated")
             return []
         
+        concat_start = time.time()
         concatenated_audio = np.concatenate(all_segments)
+        concat_time = time.time() - concat_start
+        logger.info(f"⚡ Concatenated in {concat_time:.2f}s, writing to file...")
+        
+        # Clear the segments list to free memory immediately
+        all_segments.clear()
+        del all_segments
+        
+        write_start = time.time()
         sf.write(filepath, concatenated_audio, 24000)
-        logger.info(f"🎉 Kokoro TTS audio saved: {filepath}")
+        write_time = time.time() - write_start
+        logger.info(f"🎉 Kokoro TTS audio saved: {filepath} (write took {write_time:.2f}s)")
+        
+        # Clear concatenated audio to free memory
+        del concatenated_audio
         
         _cleanup_old_audio_files()
         return [filepath]

@@ -21,8 +21,8 @@ class AudioService:
         """
         Generate audio from text using TTS.
         
-        For long texts or when Celery is enabled, uses Celery for background processing.
-        For short texts, generates directly.
+        Runs TTS generation in a background thread to avoid blocking the async event loop.
+        This is simpler and faster than using Celery since we need to wait for the result anyway.
         
         Args:
             text: Text to convert to speech
@@ -37,38 +37,34 @@ class AudioService:
         if not TTS_AVAILABLE:
             raise RuntimeError("TTS functionality is not available")
         
-        # Use Celery for long texts (CPU-intensive) if available
-        if self._use_celery and len(text) > 500:
+        # Direct generation in background thread for ALL text lengths
+        # This is simpler than Celery and avoids the overhead of task queuing
+        logger.info(f"🎤 Generating TTS audio ({len(text)} chars)")
+        
+        from app.services.tts_service import generate_tts_audio, clear_tts_cache
+        import gc
+        
+        try:
+            # Run TTS in background thread (non-blocking for event loop)
+            audio_files = await asyncio.to_thread(generate_tts_audio, text, voice)
+            
+            # Clean up memory after generation
+            await asyncio.to_thread(clear_tts_cache)
+            await asyncio.to_thread(gc.collect)
+            logger.info(f"🧹 Memory cleanup completed")
+            
+            if audio_files and len(audio_files) > 0:
+                return audio_files[0]
+            raise RuntimeError("Failed to generate audio file")
+        except Exception as e:
+            logger.error(f"TTS generation failed: {e}")
+            # Clean up even on error
             try:
-                from app.services.celery_service import celery_service
-                
-                logger.info(f"📤 Using Celery for TTS generation ({len(text)} chars)")
-                
-                # Submit to Celery and wait for result
-                result = await celery_service.submit_tts_task(
-                    text=text,
-                    voice=voice,
-                    wait_for_result=True,
-                    timeout=60.0
-                )
-                
-                if result["status"] == "completed" and result["result"]["audio_files"]:
-                    return result["result"]["audio_files"][0]
-                else:
-                    raise RuntimeError("Celery TTS generation failed")
-            except Exception as e:
-                logger.warning(f"Celery TTS failed, falling back to direct generation: {e}")
-                # Fall through to direct generation
-        
-        # Direct generation (for short texts or fallback)
-        logger.info(f"🎤 Direct TTS generation ({len(text)} chars)")
-        from app.services.tts_service import generate_tts_audio
-        
-        audio_files = await asyncio.to_thread(generate_tts_audio, text, voice)
-        
-        if audio_files and len(audio_files) > 0:
-            return audio_files[0]
-        raise RuntimeError("Failed to generate audio file")
+                await asyncio.to_thread(clear_tts_cache)
+                await asyncio.to_thread(gc.collect)
+            except:
+                pass
+            raise
     
     async def get_audio_file(self, filename: str) -> str:
         """

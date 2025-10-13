@@ -98,7 +98,16 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: celery -A app.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=100 --queues=default,cpu_intensive,io_bound,priority
+    # Single worker to prevent memory issues with TTS tasks
+    # Worker restarts after 3 tasks to prevent memory leaks
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=1 --max-tasks-per-child=3 --queues=default,cpu_intensive,io_bound,priority
+    # Memory limits to prevent OOM kills
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]

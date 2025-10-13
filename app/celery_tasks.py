@@ -23,6 +23,8 @@ from app.config import logger, AUDIO_OUTPUT_DIR
     bind=True,
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 2},
+    soft_time_limit=600,  # 10 minutes soft limit
+    time_limit=720,  # 12 minutes hard limit
 )
 def generate_tts_task(self, text: str, voice: Optional[str] = None, lang_code: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -36,8 +38,10 @@ def generate_tts_task(self, text: str, voice: Optional[str] = None, lang_code: O
     Returns:
         Dict with audio file paths and metadata
     """
+    import gc
+    
     try:
-        from app.services.tts_service import generate_tts_audio
+        from app.services.tts_service import generate_tts_audio, clear_tts_cache
         
         logger.info(f"🎤 Celery: Generating TTS for {len(text)} characters")
         start_time = time.time()
@@ -47,6 +51,11 @@ def generate_tts_task(self, text: str, voice: Optional[str] = None, lang_code: O
         duration = time.time() - start_time
         logger.info(f"✅ Celery: TTS generation completed in {duration:.2f}s")
         
+        # Clear pipeline cache and force garbage collection to free memory
+        clear_tts_cache()
+        gc.collect()
+        logger.info(f"🧹 Memory cleanup completed")
+        
         return {
             "status": "success",
             "audio_files": audio_files,
@@ -55,6 +64,13 @@ def generate_tts_task(self, text: str, voice: Optional[str] = None, lang_code: O
         }
     except Exception as e:
         logger.error(f"❌ Celery: TTS generation failed: {e}")
+        # Still clean up on error
+        try:
+            from app.services.tts_service import clear_tts_cache
+            clear_tts_cache()
+            gc.collect()
+        except:
+            pass
         raise
 
 

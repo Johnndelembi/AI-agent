@@ -46,19 +46,22 @@ async def get_history(
     return ChatHistoryResponse(thread_id=request.thread_id, messages=messages)
 
 
-@router.delete("/history/{thread_id}", summary="Clear chat history")
-@handle_http_errors("Error clearing history")
+@router.delete("/history/{thread_id}", summary="Delete conversation")
+@handle_http_errors("Error deleting conversation")
 async def clear_history(
     thread_id: str,
     chat_service: ChatService = Depends(get_chat_service)
 ) -> dict:
     """
-    Clear chat history for a specific thread.
+    Delete a conversation completely (including all messages and metadata).
     
-    - **thread_id**: The conversation thread ID to clear
+    This permanently removes the conversation document from MongoDB and clears
+    the LangGraph state. The conversation cannot be recovered after deletion.
+    
+    - **thread_id**: The conversation thread ID to delete
     """
     await chat_service.clear_history(thread_id=thread_id)
-    return success_response(f"History cleared for thread {thread_id}")
+    return success_response(f"Conversation {thread_id} deleted successfully")
 
 
 @router.get("/conversations", summary="List all conversations")

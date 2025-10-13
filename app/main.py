@@ -21,6 +21,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Initialize services
     app.state.chat_service = ChatService()
     app.state.audio_service = AudioService()
+    
+    # Pre-warm TTS pipeline for faster first request
+    from app.services.tts_service import prewarm_tts_pipeline
+    await asyncio.to_thread(prewarm_tts_pipeline)
 
     # Graceful shutdown handler
     stop_event = asyncio.Event()

@@ -113,25 +113,28 @@ class ChatService:
     
     async def clear_history(self, thread_id: str = "default") -> None:
         """
-        Clear chat history for a specific thread from MongoDB and LangGraph state.
+        Delete conversation completely from MongoDB and clear LangGraph state.
         
         Args:
-            thread_id: Thread ID to clear history for
+            thread_id: Thread ID to delete
         """
         try:
-            # Clear from MongoDB
-            conversation = await asyncio.to_thread(
-                lambda: Conversation.objects(thread_id=thread_id).first()
+            # Delete the entire conversation document from MongoDB
+            deleted_count = await asyncio.to_thread(
+                lambda: Conversation.objects(thread_id=thread_id).delete()
             )
-            if conversation:
-                await asyncio.to_thread(conversation.clear_messages)
+            
+            if deleted_count > 0:
+                logger.info(f"Deleted conversation document for thread {thread_id}")
+            else:
+                logger.info(f"No conversation found for thread {thread_id}")
             
             # Also clear from LangGraph state (for backward compatibility)
             agent = await self._ensure_agent()
             config = {"configurable": {"thread_id": thread_id}}
             await agent.graph.aupdate_state(config, {"messages": []})
             
-            logger.info(f"Cleared history for thread {thread_id}")
+            logger.info(f"Cleared history and deleted conversation for thread {thread_id}")
         except Exception as e:
             logger.error(f"Error in clear_history: {e}")
             # If the thread doesn't exist yet, that's fine

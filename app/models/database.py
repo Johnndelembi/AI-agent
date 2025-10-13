@@ -138,7 +138,7 @@ class MealOptions(Document):
 
 class ChatMessage(EmbeddedDocument):
     """Embedded document for individual chat messages."""
-    message_id = StringField(required=True, unique=True)  # Unique identifier for each message
+    message_id = StringField(required=True)  # Unique identifier for each message
     role = StringField(
         required=True,
         choices=['user', 'assistant', 'system', 'ai', 'human']
@@ -170,9 +170,8 @@ class Conversation(Document):
             'thread_id',
             'user_id',
             'created_at',
-            'updated_at',
             ('thread_id', 'user_id'),  # Compound index
-            {'fields': ['updated_at'], 'expireAfterSeconds': 2592000}  # Auto-delete after 30 days
+            {'fields': ['updated_at'], 'expireAfterSeconds': 2592000}  # Auto-delete after 30 days (TTL index)
         ]
     }
     
