@@ -132,6 +132,9 @@ def setup_database():
                 Employee, MealSelection, MealReminder, MealOptions, 
                 Conversation
             )
+            from ..models.auth import (
+                User, OTPVerification
+            )
             
             # Ensure indexes are created for all models
             logger.info("Ensuring MongoDB indexes...")
@@ -140,6 +143,8 @@ def setup_database():
             MealReminder.ensure_indexes()
             MealOptions.ensure_indexes()
             Conversation.ensure_indexes()
+            User.ensure_indexes()
+            OTPVerification.ensure_indexes()
             logger.info("MongoDB indexes ensured successfully")
             
             return True

@@ -45,3 +45,9 @@ flower==2.0.1  # Celery monitoring dashboard
 # Database
 mongoengine
 dnspython  # Required for MongoDB+SRV connection strings
+
+# Authentication & Security
+python-jose[cryptography]  # JWT token handling
+passlib[bcrypt]  # Password hashing
+python-multipart  # For form data parsing
+pydantic[email]  # Email validation
