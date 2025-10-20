@@ -126,8 +126,8 @@ class AuthService:
         email: str,
         password: str,
         phone_number: str,
-        first_name: str = "",
-        last_name: str = "",
+        fullname: str = "",
+        city: str = "",
         **kwargs
     ) -> User:
         """Register a new user."""
@@ -157,8 +157,8 @@ class AuthService:
         user = User(
             email=email,
             phone_number=phone_number,
-            first_name=first_name,
-            last_name=last_name,
+            fullname=fullname,
+            city=city,
             **kwargs
         )
         user.set_password(password)

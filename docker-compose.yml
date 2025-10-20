@@ -1,6 +1,24 @@
 version: '3.8'
 
 services:
+  # MongoDB - Primary database
+  mongo:
+    image: mongo:7
+    container_name: ai-agent-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - ai-agent-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   # Redis - Message broker and result backend for Celery
   redis:
     image: redis:7-alpine
@@ -38,8 +56,19 @@ services:
       - ENV=${ENV:-production}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       # MongoDB Configuration
-      - MONGO_URI=${MONGO_URI}
+      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017/}
       - DATABASE_NAME=${DATABASE_NAME:-test-db-retry}
+      # JWT Configuration
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-secret-key-in-production}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      # Email Configuration
+      - SENDER_EMAIL=${SENDER_EMAIL}
+      - SENDER_PASSWORD=${SENDER_PASSWORD}
+      - SMTP_SERVER=${SMTP_SERVER:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - APP_NAME=${APP_NAME:-Artemis AI Assistant}
       # TTS Configuration
       - TTS_VOICE=${TTS_VOICE:-af_heart}
       - TTS_LANG_CODE=${TTS_LANG_CODE:-b}
@@ -59,6 +88,8 @@ services:
     networks:
       - ai-agent-network
     depends_on:
+      mongo:
+        condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
@@ -152,6 +183,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  mongo_data:
+    driver: local
   redis_data:
     driver: local
 

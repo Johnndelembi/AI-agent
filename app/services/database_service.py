@@ -133,19 +133,24 @@ def setup_database():
                 Conversation
             )
             from ..models.auth import (
-                User, OTPVerification
+                User, OTPVerification, PasswordResetToken
             )
             
             # Ensure indexes are created for all models
             logger.info("Ensuring MongoDB indexes...")
-            Employee.ensure_indexes()
-            MealSelection.ensure_indexes()
-            MealReminder.ensure_indexes()
-            MealOptions.ensure_indexes()
-            Conversation.ensure_indexes()
-            User.ensure_indexes()
-            OTPVerification.ensure_indexes()
-            logger.info("MongoDB indexes ensured successfully")
+            try:
+                Employee.ensure_indexes()
+                MealSelection.ensure_indexes()
+                MealReminder.ensure_indexes()
+                MealOptions.ensure_indexes()
+                Conversation.ensure_indexes()
+                User.ensure_indexes()
+                OTPVerification.ensure_indexes()
+                PasswordResetToken.ensure_indexes()
+                logger.info("MongoDB indexes ensured successfully")
+            except Exception as index_error:
+                logger.warning(f"Some indexes could not be created: {index_error}")
+                # Don't fail the entire setup for index issues
             
             return True
         else:

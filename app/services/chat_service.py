@@ -31,11 +31,14 @@ class ChatService:
         Args:
             message: The user's message
             thread_id: Thread ID for conversation context
-            user_id: Optional user identifier
+            user_id: Required user identifier for security
             
         Returns:
             Tuple of (chatbot's response, message_id)
         """
+        if not user_id:
+            raise ValueError("user_id is required for security")
+        
         try:
             # Get or create conversation in MongoDB
             conversation = await asyncio.to_thread(
@@ -71,20 +74,24 @@ class ChatService:
             response = await agent.stream_conversation(message, thread_id=thread_id)
             return response, str(uuid4())  # Generate fallback message_id
     
-    async def get_history(self, thread_id: str = "default") -> List[Dict[str, Any]]:
+    async def get_history(self, thread_id: str = "default", user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get chat history for a specific thread from MongoDB.
         
         Args:
             thread_id: Thread ID to retrieve history for
+            user_id: Required user identifier for security
             
         Returns:
             List of messages in the conversation
         """
+        if not user_id:
+            raise ValueError("user_id is required for security")
+        
         try:
-            # Try to get from MongoDB first
+            # Try to get from MongoDB first, filtered by user
             conversation = await asyncio.to_thread(
-                lambda: Conversation.objects(thread_id=thread_id).first()
+                lambda: Conversation.objects(thread_id=thread_id, user_id=user_id).first()
             )
             
             if conversation:
@@ -111,17 +118,21 @@ class ChatService:
             logger.error(f"Error in get_history: {e}")
             return []
     
-    async def clear_history(self, thread_id: str = "default") -> None:
+    async def clear_history(self, thread_id: str = "default", user_id: Optional[str] = None) -> None:
         """
         Delete conversation completely from MongoDB and clear LangGraph state.
         
         Args:
             thread_id: Thread ID to delete
+            user_id: Required user identifier for security
         """
+        if not user_id:
+            raise ValueError("user_id is required for security")
+        
         try:
-            # Delete the entire conversation document from MongoDB
+            # Delete the entire conversation document from MongoDB, filtered by user
             deleted_count = await asyncio.to_thread(
-                lambda: Conversation.objects(thread_id=thread_id).delete()
+                lambda: Conversation.objects(thread_id=thread_id, user_id=user_id).delete()
             )
             
             if deleted_count > 0:
@@ -160,21 +171,23 @@ class ChatService:
         user_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        List conversations with pagination and optional user filtering.
+        List conversations with pagination and user filtering.
         
         Args:
             limit: Maximum number of conversations to return
             skip: Number of conversations to skip
-            user_id: Optional filter by user ID
+            user_id: Required user identifier for security
             
         Returns:
             List of conversation summaries
         """
+        if not user_id:
+            raise ValueError("user_id is required for security")
+        
         try:
             def get_conversations():
-                query = Conversation.objects()
-                if user_id:
-                    query = query.filter(user_id=user_id)
+                # Always filter by user_id for security
+                query = Conversation.objects(user_id=user_id)
                 
                 conversations = query.order_by('-updated_at').skip(skip).limit(limit)
                 
@@ -199,20 +212,24 @@ class ChatService:
             logger.error(f"Error listing conversations: {e}")
             return []
     
-    async def get_message(self, thread_id: str, message_id: str) -> Optional[Dict[str, Any]]:
+    async def get_message(self, thread_id: str, message_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Get a specific message by thread_id and message_id.
         
         Args:
             thread_id: Thread ID
             message_id: Message ID
+            user_id: Required user identifier for security
             
         Returns:
             Message dict or None if not found
         """
+        if not user_id:
+            raise ValueError("user_id is required for security")
+        
         try:
             conversation = await asyncio.to_thread(
-                lambda: Conversation.objects(thread_id=thread_id).first()
+                lambda: Conversation.objects(thread_id=thread_id, user_id=user_id).first()
             )
             
             if not conversation:
@@ -228,7 +245,7 @@ class ChatService:
             logger.error(f"Error getting message: {e}")
             return None
     
-    async def update_message_audio(self, thread_id: str, message_id: str, audio_url: str) -> bool:
+    async def update_message_audio(self, thread_id: str, message_id: str, audio_url: str, user_id: Optional[str] = None) -> bool:
         """
         Update a message to mark that audio has been generated.
         
@@ -236,13 +253,17 @@ class ChatService:
             thread_id: Thread ID
             message_id: Message ID
             audio_url: URL/path to the generated audio
+            user_id: Required user identifier for security
             
         Returns:
             True if updated, False otherwise
         """
+        if not user_id:
+            raise ValueError("user_id is required for security")
+        
         try:
             conversation = await asyncio.to_thread(
-                lambda: Conversation.objects(thread_id=thread_id).first()
+                lambda: Conversation.objects(thread_id=thread_id, user_id=user_id).first()
             )
             
             if not conversation:
@@ -260,19 +281,23 @@ class ChatService:
             logger.error(f"Error updating message audio: {e}")
             return False
     
-    async def get_conversation_stats(self, thread_id: str) -> Dict[str, Any]:
+    async def get_conversation_stats(self, thread_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Get statistics for a specific conversation.
         
         Args:
             thread_id: Thread ID to get stats for
+            user_id: Required user identifier for security
             
         Returns:
             Dictionary with conversation statistics
         """
+        if not user_id:
+            raise ValueError("user_id is required for security")
+        
         try:
             conversation = await asyncio.to_thread(
-                lambda: Conversation.objects(thread_id=thread_id).first()
+                lambda: Conversation.objects(thread_id=thread_id, user_id=user_id).first()
             )
             
             if not conversation:

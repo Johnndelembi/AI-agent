@@ -55,13 +55,13 @@ class MealSelection(Document):
     meta = {
         'collection': 'meal_selections',
         'indexes': [
-            'employee',
+            'user',
             'week_start_date',
-            ('employee', 'week_start_date')  # Compound index for queries
+            ('user', 'week_start_date')  # Compound index for queries
         ]
     }
     
-    employee = ReferenceField(Employee, required=True, reverse_delete_rule=PULL)
+    user = ReferenceField('User', required=True, reverse_delete_rule=PULL)
     week_start_date = DateTimeField(required=True)  # Monday of the week
     monday_meal = StringField()
     tuesday_meal = StringField()
@@ -73,7 +73,7 @@ class MealSelection(Document):
     is_submitted = BooleanField(default=False)
     
     def __str__(self):
-        return f"Meal selection for {self.employee.name} - Week of {self.week_start_date.strftime('%Y-%m-%d')}"
+        return f"Meal selection for {self.user.fullname} - Week of {self.week_start_date.strftime('%Y-%m-%d')}"
 
 
 class MealReminder(Document):
@@ -81,19 +81,19 @@ class MealReminder(Document):
     meta = {
         'collection': 'meal_reminders',
         'indexes': [
-            'employee',
+            'user',
             'week_start_date',
             'reminder_sent_at'
         ]
     }
     
-    employee = ReferenceField(Employee, required=True, reverse_delete_rule=PULL)
+    user = ReferenceField('User', required=True, reverse_delete_rule=PULL)
     week_start_date = DateTimeField(required=True)
     reminder_sent_at = DateTimeField(default=datetime.utcnow)
     reminder_type = StringField(max_length=20, default='weekly', choices=['weekly', 'reminder', 'final'])
     
     def __str__(self):
-        return f"{self.reminder_type} reminder for {self.employee.name} - {self.week_start_date.strftime('%Y-%m-%d')}"
+        return f"{self.reminder_type} reminder for {self.user.fullname} - {self.week_start_date.strftime('%Y-%m-%d')}"
 
 
 class MealOptions(Document):
@@ -115,7 +115,7 @@ class MealOptions(Document):
         choices=['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
     )
     is_active = BooleanField(default=True)
-    created_by = ReferenceField(Employee, required=True)
+    created_by = ReferenceField('User', required=True)
     created_at = DateTimeField(default=datetime.utcnow)
     updated_at = DateTimeField(default=datetime.utcnow)
     

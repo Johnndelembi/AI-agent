@@ -19,7 +19,7 @@ from passlib.context import CryptContext
 # PASSWORD HASHING
 # ============================================================================
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 
 
 # ============================================================================
@@ -40,6 +40,12 @@ class User(Document):
     # Optional physical address
     city = StringField(default="")
     
+    # Meal Management System Fields
+    department = StringField(max_length=50, default="")
+    employee_id = StringField(max_length=50, unique=True, default=None)  # Company employee ID
+    is_employee = BooleanField(default=False)  # Can access meal management system
+    meal_preferences = DictField(default={})  # Store dietary preferences, allergies, etc.
+    
     # Account status
     is_active = BooleanField(default=True)
     is_verified = BooleanField(default=False)
@@ -56,7 +62,16 @@ class User(Document):
     
     meta = {
         'collection': 'users',
-        'indexes': ['email', 'phone_number', 'created_at', {'fields': ['email'], 'unique': True}]
+        'indexes': [
+            'email', 
+            'phone_number', 
+            'employee_id',
+            'department',
+            'is_employee',
+            'created_at', 
+            {'fields': ['email'], 'unique': True},
+            {'fields': ['employee_id'], 'unique': True, 'sparse': True}
+        ]
     }
     
     def set_password(self, password: str):
@@ -82,6 +97,12 @@ class User(Document):
             'address': {
                 'city': self.city
             } if self.city else None,
+            # Meal Management Fields
+            'department': self.department,
+            'employee_id': self.employee_id,
+            'is_employee': self.is_employee,
+            'meal_preferences': self.meal_preferences,
+            # Account Status
             'is_active': self.is_active,
             'is_verified': self.is_verified,
             'is_admin': self.is_admin,
@@ -117,6 +138,40 @@ class User(Document):
     def phone_exists(cls, phone_number: str) -> bool:
         """Check if phone number already exists."""
         return cls.objects(phone_number=phone_number).count() > 0
+    
+    # Meal Management Helper Methods
+    def set_employee_info(self, employee_id: str, department: str = ""):
+        """Set employee information for meal management access."""
+        self.employee_id = employee_id
+        self.department = department
+        self.is_employee = True
+        if "employee" not in self.roles:
+            self.roles.append("employee")
+        self.save()
+    
+    def remove_employee_access(self):
+        """Remove employee access to meal management."""
+        self.employee_id = None
+        self.department = ""
+        self.is_employee = False
+        if "employee" in self.roles:
+            self.roles.remove("employee")
+        self.save()
+    
+    def update_meal_preferences(self, preferences: dict):
+        """Update meal preferences and dietary requirements."""
+        self.meal_preferences.update(preferences)
+        self.save()
+    
+    @classmethod
+    def get_employees(cls) -> List['User']:
+        """Get all users who are employees (can access meal management)."""
+        return cls.objects(is_employee=True, is_active=True)
+    
+    @classmethod
+    def get_by_employee_id(cls, employee_id: str) -> Optional['User']:
+        """Get user by employee ID."""
+        return cls.objects(employee_id=employee_id).first()
 
 
 class OTPVerification(Document):
@@ -148,18 +203,30 @@ class OTPVerification(Document):
     def create_otp(cls, email: str, password_hash: str, phone_number: str, 
                    expiry_minutes: int = 1, **user_data) -> 'OTPVerification':
         """Create new OTP verification entry."""
-        cls.objects(email=email).delete()
-        otp = cls(
-            email=email,
-            code=cls.generate_code(),
-            password_hash=password_hash,
-            phone_number=phone_number,
-            fullname=user_data.get('fullname', ''),
-            city=user_data.get('city', ''),
-            expires_at=datetime.utcnow() + timedelta(minutes=expiry_minutes)
-        )
-        otp.save()
-        return otp
+        try:
+            # Delete any existing OTP for this email
+            existing_otps = cls.objects(email=email)
+            if existing_otps:
+                existing_otps.delete()
+            
+            # Create new OTP entry
+            otp = cls(
+                email=email,
+                code=cls.generate_code(),
+                password_hash=password_hash,
+                phone_number=phone_number,
+                fullname=user_data.get('fullname', ''),
+                city=user_data.get('city', ''),
+                expires_at=datetime.utcnow() + timedelta(minutes=expiry_minutes)
+            )
+            otp.save()
+            return otp
+        except Exception as e:
+            # Log the error and re-raise with more context
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create OTP for {email}: {str(e)}")
+            raise Exception(f"Database error while creating OTP: {str(e)}") from e
     
     def is_expired(self) -> bool:
         return datetime.utcnow() > self.expires_at
@@ -200,14 +267,26 @@ class PasswordResetToken(Document):
     
     @classmethod
     def create_reset_token(cls, email: str, expiry_hours: int = 1) -> 'PasswordResetToken':
-        cls.objects(email=email).delete()
-        token = cls(
-            email=email,
-            token=cls.generate_token(),
-            expires_at=datetime.utcnow() + timedelta(hours=expiry_hours)
-        )
-        token.save()
-        return token
+        try:
+            # Delete any existing reset tokens for this email
+            existing_tokens = cls.objects(email=email)
+            if existing_tokens:
+                existing_tokens.delete()
+            
+            # Create new reset token
+            token = cls(
+                email=email,
+                token=cls.generate_token(),
+                expires_at=datetime.utcnow() + timedelta(hours=expiry_hours)
+            )
+            token.save()
+            return token
+        except Exception as e:
+            # Log the error and re-raise with more context
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create reset token for {email}: {str(e)}")
+            raise Exception(f"Database error while creating reset token: {str(e)}") from e
     
     def is_expired(self) -> bool:
         return datetime.utcnow() > self.expires_at
@@ -233,27 +312,16 @@ class PasswordResetToken(Document):
 class RegisterRequest(BaseModel):
     """User registration request."""
     email: EmailStr
-    password: str = Field(..., min_length=8, description="Password must be at least 8 characters")
-    phone_number: str = Field(..., min_length=10, description="Phone number")
+    password: str = Field(..., min_length=1, description="Password")
+    phone_number: str = Field(..., min_length=1, description="Phone number")
     fullname: Optional[str] = ""
     city: Optional[str] = ""
-    
-    @validator('password')
-    def validate_password(cls, v):
-        """Validate password strength."""
-        if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters long')
-        if not any(char.isdigit() for char in v):
-            raise ValueError('Password must contain at least one digit')
-        if not any(char.isalpha() for char in v):
-            raise ValueError('Password must contain at least one letter')
-        return v
     
     @validator('phone_number')
     def validate_phone(cls, v):
         """Basic phone number validation."""
-        # Remove common separators
-        cleaned = v.replace('-', '').replace(' ', '').replace('(', '').replace(')', '')
+        # Remove common separators and + sign
+        cleaned = v.replace('-', '').replace(' ', '').replace('(', '').replace(')', '').replace('+', '')
         if not cleaned.isdigit() or len(cleaned) < 10:
             raise ValueError('Invalid phone number format')
         return v
@@ -306,18 +374,7 @@ class UpdateProfileRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     """Change password request."""
     current_password: str
-    new_password: str = Field(..., min_length=8)
-    
-    @validator('new_password')
-    def validate_new_password(cls, v):
-        """Validate new password strength."""
-        if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters long')
-        if not any(char.isdigit() for char in v):
-            raise ValueError('Password must contain at least one digit')
-        if not any(char.isalpha() for char in v):
-            raise ValueError('Password must contain at least one letter')
-        return v
+    new_password: str = Field(..., min_length=1)
 
 
 class VerifyEmailRequest(BaseModel):
@@ -346,18 +403,7 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     """Reset password with token."""
     token: str = Field(..., min_length=32, max_length=32)
-    new_password: str = Field(..., min_length=8)
-    
-    @validator('new_password')
-    def validate_password(cls, v):
-        """Validate password strength."""
-        if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters long')
-        if not any(char.isdigit() for char in v):
-            raise ValueError('Password must contain at least one digit')
-        if not any(char.isalpha() for char in v):
-            raise ValueError('Password must contain at least one letter')
-        return v
+    new_password: str = Field(..., min_length=1)
 
 
 class RegistrationResponse(BaseModel):
@@ -365,4 +411,29 @@ class RegistrationResponse(BaseModel):
     message: str
     email: str
     expires_in_seconds: int
+
+
+class AdminPatchUserRequest(BaseModel):
+    """Admin-only partial update for User fields, including meal management fields."""
+    # Profile fields
+    fullname: Optional[str] = None
+    phone_number: Optional[str] = None
+    city: Optional[str] = None
+
+    # Account flags
+    is_active: Optional[bool] = None
+    is_verified: Optional[bool] = None
+    is_admin: Optional[bool] = None
+
+    # Roles
+    roles: Optional[List[str]] = None
+
+    # Meal management fields
+    department: Optional[str] = None
+    employee_id: Optional[str] = None  # unique, sparse
+    is_employee: Optional[bool] = None
+    meal_preferences: Optional[dict] = None
+
+    class Config:
+        extra = 'forbid'
 

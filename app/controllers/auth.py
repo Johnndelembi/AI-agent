@@ -8,13 +8,14 @@ from app.models.auth import (
     RegisterRequest, LoginRequest, TokenResponse, RefreshTokenRequest,
     UserResponse, UpdateProfileRequest, ChangePasswordRequest,
     VerifyEmailRequest, ResendOTPRequest, ForgotPasswordRequest, ResetPasswordRequest,
-    RegistrationResponse,
+    RegistrationResponse, AdminPatchUserRequest,
     # MongoDB models
     User, OTPVerification, PasswordResetToken
 )
 from app.services.auth_service import auth_service, email_service, ACCESS_TOKEN_EXPIRE_MINUTES
-from app.utils.auth_utils import get_current_user, get_current_active_user
+from app.utils.auth_utils import get_current_user, get_current_active_user, get_current_admin_user
 from app.utils.error_handler import handle_http_errors
+from app.dependencies import get_database
 from app.config import logger
 
 
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 
 @router.post("/register", response_model=RegistrationResponse, summary="Step 1: Initiate registration (sends OTP)")
 @handle_http_errors("Registration failed")
-async def register(request: RegisterRequest) -> RegistrationResponse:
+async def register(request: RegisterRequest, db=Depends(get_database)) -> RegistrationResponse:
     """
     **Step 1 of Registration:** Submit registration details and receive OTP code via email.
     
@@ -57,9 +58,8 @@ async def register(request: RegisterRequest) -> RegistrationResponse:
             detail="Phone number already registered"
         )
     
-    # Hash password
-    from passlib.context import CryptContext
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    # Hash password using the shared pwd_context from models
+    from app.models.auth import pwd_context
     password_hash = pwd_context.hash(request.password)
     
     # Create OTP verification entry
@@ -98,7 +98,7 @@ async def register(request: RegisterRequest) -> RegistrationResponse:
 
 @router.post("/verify-email", response_model=UserResponse, status_code=status.HTTP_201_CREATED, summary="Step 2: Verify email with OTP")
 @handle_http_errors("Email verification failed")
-async def verify_email(request: VerifyEmailRequest) -> UserResponse:
+async def verify_email(request: VerifyEmailRequest, db=Depends(get_database)) -> UserResponse:
     """
     **Step 2 of Registration:** Verify email with the 4-digit OTP code.
     
@@ -166,7 +166,7 @@ async def verify_email(request: VerifyEmailRequest) -> UserResponse:
 
 @router.post("/resend-otp", response_model=RegistrationResponse, summary="Resend OTP code")
 @handle_http_errors("Failed to resend OTP")
-async def resend_otp(request: ResendOTPRequest) -> RegistrationResponse:
+async def resend_otp(request: ResendOTPRequest, db=Depends(get_database)) -> RegistrationResponse:
     """
     Resend OTP verification code if the previous one expired.
     
@@ -221,7 +221,7 @@ async def resend_otp(request: ResendOTPRequest) -> RegistrationResponse:
 
 @router.post("/login", response_model=TokenResponse, summary="Login")
 @handle_http_errors("Login failed")
-async def login(request: LoginRequest) -> TokenResponse:
+async def login(request: LoginRequest, db=Depends(get_database)) -> TokenResponse:
     """
     Authenticate user and return JWT tokens.
     
@@ -262,7 +262,7 @@ async def login(request: LoginRequest) -> TokenResponse:
 
 @router.post("/refresh", response_model=TokenResponse, summary="Refresh access token")
 @handle_http_errors("Token refresh failed")
-async def refresh_token(request: RefreshTokenRequest) -> TokenResponse:
+async def refresh_token(request: RefreshTokenRequest, db=Depends(get_database)) -> TokenResponse:
     """
     Generate new access token using refresh token.
     
@@ -385,9 +385,54 @@ async def delete_current_user(
     return {"message": "Account deleted successfully"}
 
 
+@router.patch("/users/{user_id}", summary="Admin: Partially update a user")
+@handle_http_errors("Failed to update user")
+async def admin_patch_user(
+    user_id: str,
+    request: AdminPatchUserRequest,
+    admin_user: User = Depends(get_current_admin_user),
+    db=Depends(get_database)
+) -> UserResponse:
+    """
+    Admin-only partial update of a user document.
+    Supports updating profile fields, account flags, roles, and meal management fields.
+    """
+    # Fetch target user
+    user = await asyncio.to_thread(User.get_by_id, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    update_data = request.dict(exclude_unset=True)
+
+    # Special handling for roles to avoid None and enforce list semantics
+    roles_update = update_data.pop('roles', None)
+    if roles_update is not None:
+        if not isinstance(roles_update, list):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="roles must be a list of strings")
+        user.roles = roles_update
+
+    # Keep roles in sync with is_admin if provided (unless roles explicitly set above)
+    if 'is_admin' in update_data and roles_update is None:
+        is_admin_flag = update_data['is_admin']
+        if is_admin_flag and 'admin' not in user.roles:
+            user.roles.append('admin')
+        if (is_admin_flag is False) and ('admin' in user.roles):
+            user.roles.remove('admin')
+
+    # Update remaining simple fields if present
+    for field, value in update_data.items():
+        if hasattr(user, field):
+            setattr(user, field, value)
+
+    # Persist changes
+    await asyncio.to_thread(user.save)
+
+    logger.info(f"Admin {admin_user.email} patched user {user.email} ({user_id})")
+    return UserResponse(**user.to_dict())
+
 @router.post("/forgot-password", summary="Request password reset")
 @handle_http_errors("Failed to process password reset request")
-async def forgot_password(request: ForgotPasswordRequest) -> dict:
+async def forgot_password(request: ForgotPasswordRequest, db=Depends(get_database)) -> dict:
     """
     Request password reset link (for users who forgot their password).
     
@@ -441,7 +486,7 @@ async def forgot_password(request: ForgotPasswordRequest) -> dict:
 
 @router.post("/reset-password", summary="Reset password with token")
 @handle_http_errors("Failed to reset password")
-async def reset_password(request: ResetPasswordRequest) -> dict:
+async def reset_password(request: ResetPasswordRequest, db=Depends(get_database)) -> dict:
     """
     Reset password using the token from email link.
     

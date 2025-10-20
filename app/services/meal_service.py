@@ -9,7 +9,8 @@ from typing import List, Dict, Optional
 from mongoengine.errors import NotUniqueError, DoesNotExist, ValidationError
 
 from app.config import logger
-from app.models.database import Employee, MealSelection, MealReminder, MealOptions
+from app.models.database import MealSelection, MealReminder, MealOptions
+from app.models.auth import User
 
 
 # ============================================================================
@@ -29,6 +30,7 @@ def verify_password(password: str, hashed_password: str) -> bool:
 def authenticate_employee(name: str, password: str) -> Dict:
     """
     Authenticate an employee by name and password.
+    Now uses the unified User model with employee access.
     
     Args:
         name: Employee's full name
@@ -38,29 +40,30 @@ def authenticate_employee(name: str, password: str) -> Dict:
         Dictionary with success status and employee data or error message
     """
     try:
-        # Find employee by name (case-insensitive) and active status
-        employee = Employee.objects(name__iexact=name, is_active=True).first()
+        # Find user by name (case-insensitive) who has employee access
+        user = User.objects(fullname__iexact=name, is_employee=True, is_active=True).first()
         
-        if not employee:
+        if not user:
             return {"success": False, "error": "Employee not found or inactive"}
         
-        # Verify password
-        if not verify_password(password, employee.password_hash):
+        # Verify password using the User model's method
+        if not user.verify_password(password):
             return {"success": False, "error": "Invalid password"}
         
         # Get available meal options
         meal_options = get_meal_options_by_day()
         
-        logger.info(f"Employee authenticated: {employee.name}")
+        logger.info(f"Employee authenticated: {user.fullname}")
         return {
             "success": True,
-            "message": f"Welcome back, {employee.name}!",
+            "message": f"Welcome back, {user.fullname}!",
             "employee": {
-                "id": str(employee.id),
-                "name": employee.name,
-                "email": employee.email,
-                "department": employee.department,
-                "role": employee.role
+                "id": str(user.id),
+                "name": user.fullname,
+                "email": user.email,
+                "department": user.department,
+                "role": "admin" if user.is_admin else "client",
+                "employee_id": user.employee_id
             },
             "meal_options": meal_options
         }
@@ -75,27 +78,45 @@ def authenticate_employee(name: str, password: str) -> Dict:
 # ============================================================================
 
 def add_employee(name: str, email: str, department: str = "General") -> Dict:
-    """Add a new employee to the meal management system."""
+    """Add a new employee to the meal management system using the unified User model."""
     try:
-        # Check if employee already exists
-        existing = Employee.objects(email=email).first()
+        # Check if user already exists
+        existing = User.objects(email=email).first()
         if existing:
-            return {"success": False, "error": f"Employee with email {email} already exists"}
+            if existing.is_employee:
+                return {"success": False, "error": f"Employee with email {email} already exists"}
+            else:
+                # Convert existing user to employee
+                existing.set_employee_info(
+                    employee_id=f"EMP_{existing.id}",
+                    department=department
+                )
+                logger.info(f"Converted existing user to employee: {name} ({email})")
+                return {
+                    "success": True,
+                    "message": f"Existing user {name} granted employee access",
+                    "employee_id": str(existing.id)
+                }
         
-        # Create new employee with a default password (should be changed)
-        new_employee = Employee(
-            name=name,
+        # Create new user with employee access
+        new_user = User(
             email=email,
             password_hash=hash_password("changeme123"),  # Default password
-            department=department
+            phone_number=f"555-{email.split('@')[0][:4]}",  # Generate phone from email
+            fullname=name,
+            department=department,
+            employee_id=f"EMP_{email.split('@')[0]}",  # Generate employee ID
+            is_employee=True,
+            is_verified=True,  # Mark as verified for employees
+            roles=['user', 'employee']
         )
-        new_employee.save()
+        new_user.save()
         
         logger.info(f"Added employee: {name} ({email})")
         return {
             "success": True,
             "message": f"Employee {name} added successfully",
-            "employee_id": str(new_employee.id)
+            "employee_id": str(new_user.id)
         }
         
     except NotUniqueError:
@@ -110,25 +131,47 @@ def add_employee(name: str, email: str, department: str = "General") -> Dict:
 def add_employee_with_password(name: str, email: str, password: str, department: str = "General") -> Dict:
     """Add a new employee with password to the meal management system."""
     try:
-        # Check if employee already exists
-        existing = Employee.objects(email=email).first()
+        # Check if user already exists
+        existing = User.objects(email=email).first()
         if existing:
-            return {"success": False, "error": f"Employee with email {email} already exists"}
+            if existing.is_employee:
+                return {"success": False, "error": f"Employee with email {email} already exists"}
+            else:
+                # Convert existing user to employee
+                existing.set_employee_info(
+                    employee_id=f"EMP_{existing.id}",
+                    department=department
+                )
+                # Update password if provided
+                if password:
+                    existing.set_password(password)
+                    existing.save()
+                logger.info(f"Converted existing user to employee: {name} ({email})")
+                return {
+                    "success": True,
+                    "message": f"Existing user {name} granted employee access",
+                    "employee_id": str(existing.id)
+                }
         
-        # Create new employee
-        new_employee = Employee(
-            name=name,
+        # Create new user with employee access
+        new_user = User(
             email=email,
             password_hash=hash_password(password),
-            department=department
+            phone_number=f"555-{email.split('@')[0][:4]}",  # Generate phone from email
+            fullname=name,
+            department=department,
+            employee_id=f"EMP_{email.split('@')[0]}",  # Generate employee ID
+            is_employee=True,
+            is_verified=True,  # Mark as verified for employees
+            roles=['user', 'employee']
         )
-        new_employee.save()
+        new_user.save()
         
         logger.info(f"Added employee with password: {name} ({email})")
         return {
             "success": True,
             "message": f"Employee {name} added successfully with password",
-            "employee_id": str(new_employee.id)
+            "employee_id": str(new_user.id)
         }
         
     except NotUniqueError:

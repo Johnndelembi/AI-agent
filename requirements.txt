@@ -48,6 +48,7 @@ dnspython  # Required for MongoDB+SRV connection strings
 
 # Authentication & Security
 python-jose[cryptography]  # JWT token handling
-passlib[bcrypt]  # Password hashing
+passlib[bcrypt]
+argon2-cffi  # Password hashing
 python-multipart  # For form data parsing
 pydantic[email]  # Email validation
