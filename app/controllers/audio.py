@@ -4,9 +4,11 @@ from fastapi.responses import FileResponse
 import os
 
 from app.models.chat import AudioRequest, AudioResponse
+from app.models.auth import User
 from app.services.audio_service import AudioService
 from app.services.chat_service import ChatService
 from app.dependencies import get_audio_service, get_chat_service
+from app.utils.auth_utils import get_current_user
 from app.utils.error_handler import handle_http_errors, validate_file_exists
 
 router = APIRouter(prefix="/audio", tags=["audio"])
@@ -16,6 +18,7 @@ router = APIRouter(prefix="/audio", tags=["audio"])
 @handle_http_errors("Error generating audio")
 async def generate_audio(
     request: AudioRequest,
+    current_user: User = Depends(get_current_user),
     audio_service: AudioService = Depends(get_audio_service),
     chat_service: ChatService = Depends(get_chat_service)
 ) -> AudioResponse:
@@ -38,7 +41,7 @@ async def generate_audio(
             )
         
         # Retrieve the message from MongoDB
-        message = await chat_service.get_message(request.thread_id, request.message_id)
+        message = await chat_service.get_message(request.thread_id, request.message_id, current_user.id)
         
         if not message:
             raise HTTPException(
@@ -83,7 +86,8 @@ async def generate_audio(
         await chat_service.update_message_audio(
             request.thread_id,
             request.message_id,
-            audio_url
+            audio_url,
+            current_user.id
         )
     
     return AudioResponse(
