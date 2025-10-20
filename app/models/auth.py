@@ -42,7 +42,7 @@ class User(Document):
     
     # Meal Management System Fields
     department = StringField(max_length=50, default="")
-    employee_id = StringField(max_length=50, unique=True, default=None)  # Company employee ID
+    employee_id = StringField(max_length=50, default=None)  # Company employee ID (unique via sparse index)
     is_employee = BooleanField(default=False)  # Can access meal management system
     meal_preferences = DictField(default={})  # Store dietary preferences, allergies, etc.
     
@@ -63,14 +63,13 @@ class User(Document):
     meta = {
         'collection': 'users',
         'indexes': [
-            'email', 
-            'phone_number', 
-            'employee_id',
+            # Non-unique helpful indexes
+            'phone_number',
             'department',
             'is_employee',
-            'created_at', 
-            {'fields': ['email'], 'unique': True},
-            {'fields': ['employee_id'], 'unique': True, 'sparse': True}
+            'created_at',
+            # Explicit unique sparse for optional employee_id
+            {'fields': ['employee_id'], 'unique': True, 'sparse': True, 'name': 'uniq_employee_id'}
         ]
     }
     
@@ -191,7 +190,10 @@ class OTPVerification(Document):
     
     meta = {
         'collection': 'otp_verifications',
-        'indexes': ['email', 'expires_at', {'fields': ['email'], 'unique': True}]
+        'indexes': [
+            'expires_at'
+            # unique index for email is provided by field unique=True; no duplicate entry here
+        ]
     }
     
     @classmethod
@@ -258,7 +260,10 @@ class PasswordResetToken(Document):
     
     meta = {
         'collection': 'password_reset_tokens',
-        'indexes': ['email', 'token', 'expires_at', {'fields': ['token'], 'unique': True}]
+        'indexes': [
+            'expires_at'
+            # unique index for token is provided by field unique=True; no duplicate entry here
+        ]
     }
     
     @classmethod

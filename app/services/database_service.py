@@ -139,7 +139,23 @@ def setup_database():
             # Ensure indexes are created for all models
             logger.info("Ensuring MongoDB indexes...")
             try:
-                Employee.ensure_indexes()
+                # Drop conflicting legacy indexes if they exist
+                from mongoengine.connection import get_db
+                db = get_db(alias='default')
+                try:
+                    db['users'].drop_index('email_1')
+                except Exception:
+                    pass
+                try:
+                    db['otp_verifications'].drop_index('email_1')
+                except Exception:
+                    pass
+                try:
+                    db['password_reset_tokens'].drop_index('token_1')
+                except Exception:
+                    pass
+
+                # Now ensure indexes
                 MealSelection.ensure_indexes()
                 MealReminder.ensure_indexes()
                 MealOptions.ensure_indexes()
