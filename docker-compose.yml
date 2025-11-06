@@ -39,7 +39,7 @@ services:
 
   # FastAPI Web Server
   api:
-    build: .
+    image: ${DOCKER_IMAGE_NAME:-johnndelembi/ai-agent:latest}
     container_name: ai-agent-api
     ports:
       - "8000:8000"
@@ -95,14 +95,14 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
+      interval: 3660s
       timeout: 10s
-      retries: 3
-      start_period: 40s
+      retries: 2
+      start_period: 120s
 
   # Celery Worker - Handles CPU-intensive and background tasks
   celery_worker:
-    build: .
+    image: ${DOCKER_IMAGE_NAME:-johnndelembi/ai-agent:latest}
     container_name: ai-agent-celery-worker
     environment:
       # API Keys
@@ -149,7 +149,7 @@ services:
 
   # Celery Beat - Periodic task scheduler
   celery_beat:
-    build: .
+    image: ${DOCKER_IMAGE_NAME:-johnndelembi/ai-agent:latest}
     container_name: ai-agent-celery-beat
     environment:
       - REDIS_URL=redis://redis:6379/0
@@ -163,23 +163,6 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.celery_app beat --loglevel=info
-    restart: unless-stopped
-
-  # Flower - Celery monitoring dashboard
-  flower:
-    build: .
-    container_name: ai-agent-flower
-    ports:
-      - "5555:5555"
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    networks:
-      - ai-agent-network
-    depends_on:
-      redis:
-        condition: service_healthy
-    command: celery -A app.celery_app flower --port=5555 --basic_auth=admin:${FLOWER_PASSWORD:-admin123}
     restart: unless-stopped
 
 volumes:
