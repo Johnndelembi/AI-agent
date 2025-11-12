@@ -1,7 +1,11 @@
 """Audio controller for handling TTS endpoints."""
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 import os
+import asyncio
+from fastapi.responses import Response
+from mongoengine.connection import get_db
+from gridfs import GridFS
 
 from app.models.chat import AudioRequest, AudioResponse
 from app.models.auth import User
@@ -9,7 +13,7 @@ from app.services.audio_service import AudioService
 from app.services.chat_service import ChatService
 from app.dependencies import get_audio_service, get_chat_service
 from app.utils.auth_utils import get_current_user
-from app.utils.error_handler import handle_http_errors, validate_file_exists
+from app.utils.error_handler import handle_http_errors
 
 router = APIRouter(prefix="/audio", tags=["audio"])
 
@@ -31,6 +35,7 @@ async def generate_audio(
     - **voice**: Optional voice selection
     """
     text_to_speak = request.text
+    message_found = False  # Track if message was successfully found
     
     # If message_id is provided, retrieve the message content from MongoDB
     if request.message_id:
@@ -41,23 +46,41 @@ async def generate_audio(
             )
         
         # Retrieve the message from MongoDB
-        message = await chat_service.get_message(request.thread_id, request.message_id, current_user.id)
+        message = await chat_service.get_message(request.thread_id, request.message_id, str(current_user.id))
         
         if not message:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Message not found: {request.message_id} in thread {request.thread_id}"
-            )
-        
-        # Use the message content for TTS
-        text_to_speak = message['content']
-        
-        # Check if audio was already generated
-        if message.get('audio_generated') and message.get('audio_url'):
-            return AudioResponse(
-                audio_url=message['audio_url'],
-                duration=None
-            )
+            # If text is also provided, fall back to using text instead of failing
+            if request.text:
+                # Use the provided text as fallback
+                text_to_speak = request.text
+            else:
+                # Check if conversation exists to provide better error message
+                from app.models.database import Conversation
+                conversation = await asyncio.to_thread(
+                    lambda: Conversation.objects(thread_id=request.thread_id, user_id=str(current_user.id)).first()
+                )
+                
+                if not conversation:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Conversation not found for thread_id: {request.thread_id}. Please ensure the conversation exists before generating audio for a message, or provide 'text' to generate audio directly."
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Message not found: {request.message_id} in thread {request.thread_id}. Provide 'text' to generate audio directly."
+                    )
+        else:
+            # Use the message content for TTS
+            text_to_speak = message['content']
+            message_found = True  # Mark that message was found
+            
+            # Check if audio was already generated
+            if message.get('audio_generated') and message.get('audio_url'):
+                return AudioResponse(
+                    audio_url=message['audio_url'],
+                    duration=None
+                )
     
     # Validate that we have text to speak
     if not text_to_speak:
@@ -66,28 +89,27 @@ async def generate_audio(
             detail="Either text or message_id must be provided"
         )
     
-    # Generate audio
-    audio_file = await audio_service.generate_audio(
+    # Generate audio and save to GridFS
+    file_id = await audio_service.generate_audio(
         text=text_to_speak,
         voice=request.voice
     )
     
-    # Get file size to estimate duration (async to avoid blocking)
-    import asyncio
-    file_size = await asyncio.to_thread(os.path.getsize, audio_file)
+    # Get audio data to estimate duration
+    audio_data = await audio_service.get_audio_file(file_id)
+    file_size = len(audio_data)
     estimated_duration = file_size / (24000 * 2)  # Rough estimate for 24kHz, 16-bit
     
-    # Return relative URL path
-    filename = os.path.basename(audio_file)
-    audio_url = f"/audio/files/{filename}"
+    # Return GridFS file_id as the audio_url
+    audio_url = file_id
     
-    # If this was for a specific message, update the message in MongoDB
-    if request.message_id and request.thread_id:
+    # If this was for a specific message and it was found, update the message in MongoDB
+    if request.message_id and request.thread_id and message_found:
         await chat_service.update_message_audio(
             request.thread_id,
             request.message_id,
             audio_url,
-            current_user.id
+            str(current_user.id)
         )
     
     return AudioResponse(
@@ -96,25 +118,45 @@ async def generate_audio(
     )
 
 
-@router.get("/files/{filename}", summary="Download audio file")
+@router.get("/files/{file_id}", summary="Download audio file")
 @handle_http_errors("Error retrieving audio file")
 async def get_audio_file(
-    filename: str,
+    file_id: str,
     audio_service: AudioService = Depends(get_audio_service)
-) -> FileResponse:
+) -> Response:
     """
-    Download a generated audio file.
+    Download a generated audio file from GridFS.
     
-    - **filename**: Name of the audio file to download
+    - **file_id**: GridFS file ID of the audio file to download
     """
-    audio_file = await audio_service.get_audio_file(filename)
-    validate_file_exists(audio_file, f"Audio file not found: {filename}")
     
-    return FileResponse(
-        audio_file,
-        media_type="audio/wav",
-        filename=filename
-    )
+    # Get audio data from GridFS
+    try:
+        audio_data = await audio_service.get_audio_file(file_id)
+        
+        # Get filename from GridFS metadata if available
+        from app.services.gridfs_service import gridfs_service
+        from bson import ObjectId
+        try:
+            db = get_db()
+            fs = GridFS(db)
+            grid_file = fs.get(ObjectId(file_id))
+            filename = grid_file.filename or f"audio_{file_id}.wav"
+        except:
+            filename = f"audio_{file_id}.wav"
+        
+        return Response(
+            content=audio_data,
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Audio file not found: {file_id}"
+        )
 
 
 @router.get("/available", summary="Check if TTS is available")

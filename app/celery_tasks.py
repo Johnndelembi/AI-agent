@@ -279,7 +279,10 @@ def generate_response_task(
 @celery_app.task(name="app.celery_tasks.cleanup_old_files_task")
 def cleanup_old_files_task(max_age_hours: int = 24) -> Dict[str, Any]:
     """
-    Clean up old audio files (periodic task).
+    Clean up old temporary files (periodic task).
+    
+    Note: Audio files are now stored in GridFS, not filesystem.
+    This task only cleans up any leftover temporary files.
     
     Args:
         max_age_hours: Maximum age of files to keep
@@ -288,15 +291,18 @@ def cleanup_old_files_task(max_age_hours: int = 24) -> Dict[str, Any]:
         Dict with cleanup statistics
     """
     try:
-        logger.info(f"🧹 Celery: Starting file cleanup (max age: {max_age_hours}h)")
+        logger.info(f"🧹 Celery: Starting temporary file cleanup (max age: {max_age_hours}h)")
         
+        # Audio files are now in GridFS, so we only clean up any leftover temporary files
         if not os.path.exists(AUDIO_OUTPUT_DIR):
-            return {"status": "success", "files_deleted": 0, "message": "No audio directory"}
+            return {"status": "success", "files_deleted": 0, "message": "No audio directory (files are in GridFS)"}
         
         cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
         deleted_count = 0
         total_size = 0
         
+        # Only clean up very old temporary files (older than max_age_hours)
+        # Most temporary files should be cleaned up immediately after GridFS save
         for filename in os.listdir(AUDIO_OUTPUT_DIR):
             filepath = os.path.join(AUDIO_OUTPUT_DIR, filename)
             
@@ -309,7 +315,10 @@ def cleanup_old_files_task(max_age_hours: int = 24) -> Dict[str, Any]:
                     deleted_count += 1
                     total_size += file_size
         
-        logger.info(f"✅ Celery: Cleaned up {deleted_count} files ({total_size / 1024 / 1024:.2f} MB)")
+        if deleted_count > 0:
+            logger.info(f"✅ Celery: Cleaned up {deleted_count} temporary files ({total_size / 1024 / 1024:.2f} MB)")
+        else:
+            logger.info("✅ Celery: No old temporary files to clean up (audio files are in GridFS)")
         
         return {
             "status": "success",

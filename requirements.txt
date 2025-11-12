@@ -44,6 +44,7 @@ flower==2.0.1  # Celery monitoring dashboard
 
 # Database
 mongoengine
+pymongo  # Required for GridFS support
 dnspython  # Required for MongoDB+SRV connection strings
 
 # Authentication & Security

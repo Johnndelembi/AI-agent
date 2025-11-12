@@ -291,7 +291,13 @@ class Conversation(Document):
         Returns:
             Conversation instance
         """
-        conversation = cls.objects(thread_id=thread_id).first()
+        # Filter by both thread_id and user_id to ensure user-specific conversations
+        if user_id:
+            conversation = cls.objects(thread_id=thread_id, user_id=user_id).first()
+        else:
+            # If no user_id provided, only check thread_id (for backward compatibility)
+            conversation = cls.objects(thread_id=thread_id).first()
+        
         if not conversation:
             conversation = cls(
                 thread_id=thread_id,
