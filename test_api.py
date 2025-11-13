@@ -1,8 +1,7 @@
 """Test script for FastAPI endpoints."""
 import asyncio
 import sys
-from app.services.chat_service import ChatService
-from app.services.audio_service import AudioService
+from src.services.chat_service import ChatService
 
 
 async def test_chat_service():
@@ -45,48 +44,12 @@ async def test_chat_service():
         return False
 
 
-async def test_audio_service():
-    """Test the audio service."""
-    print("\n🧪 Testing Audio Service...")
-    
-    try:
-        service = AudioService()
-        
-        # Test availability check
-        print("  → Checking TTS availability...")
-        is_available = await service.is_available()
-        print(f"  {'✓' if is_available else '⚠'} TTS available: {is_available}")
-        
-        if is_available:
-            # Test audio generation
-            print("  → Generating test audio...")
-            audio_file = await service.generate_audio(
-                text="This is a test of the audio generation system.",
-                voice=None
-            )
-            
-            if audio_file:
-                print(f"  ✓ Audio generated: {audio_file}")
-            else:
-                print("  ✗ Audio generation failed")
-                return False
-        
-        # Cleanup
-        await service.shutdown()
-        print("  ✓ Audio service test completed successfully")
-        return True
-        
-    except Exception as e:
-        print(f"  ✗ Audio service test failed: {e}")
-        return False
-
-
 async def test_app_startup():
     """Test app startup and structure."""
     print("\n🧪 Testing App Structure...")
     
     try:
-        from app.main import app
+        from src.main import app
         
         # Check app metadata
         print(f"  ✓ App title: {app.title}")
@@ -95,7 +58,7 @@ async def test_app_startup():
         
         # Check routes are registered
         routes = [route.path for route in app.routes]
-        expected_routes = ["/health", "/", "/chat/message", "/audio/generate"]
+        expected_routes = ["/", "/chat/message"]
         
         for route in expected_routes:
             if any(r for r in routes if route in r):
@@ -125,9 +88,6 @@ async def main():
     
     # Test chat service
     results.append(await test_chat_service())
-    
-    # Test audio service
-    results.append(await test_audio_service())
     
     # Summary
     print("\n" + "=" * 60)

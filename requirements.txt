@@ -46,6 +46,8 @@ flower==2.0.1  # Celery monitoring dashboard
 mongoengine
 pymongo  # Required for GridFS support
 dnspython  # Required for MongoDB+SRV connection strings
+python-dotenv
+psycopg2-binary
 
 # Authentication & Security
 python-jose[cryptography]  # JWT token handling

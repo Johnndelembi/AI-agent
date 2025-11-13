@@ -1,0 +1,214 @@
+---
+alwaysApply: false
+
+From your Supabase schema, you should map these SQLAlchemy models:
+
+users: user profile info (id, name, location, salary, etc.)
+
+user_cycles: links users to cycles with participation history and completion status
+
+cycles: the cycle itself (name, capacity, plan, dates, status, etc.)
+
+cycle_contributions: tracks contributions user-by-user per cycle
+
+user_cycle_goals: user's goals for cycles (links user, cycle, and goal)
+
+cycle_goals_options: available cycle goals
+
+cycle_participant_slots: track slots/participants within cycles
+
+payouts_table: historical payouts, success rates, amounts
+
+payments: individual payments, status, contribution or payout
+
+user_wallet: user payment methods/wallet integration
+
+notifications: activity related to cycles/users
+
+user_guarantor, user_online_presence: optional extra features for engagement
+
+Two Types of Recommendations
+A. Recommend cycles to users based on similar user patterns:
+
+- Find other users with similar goal choices, contribution patterns, and cycle history.
+
+- Get cycles those other users have joined and recommend them to your target user.
+
+B. Recommend well-performing/popular cycles to new users:
+
+- Rank cycles by participant numbers, payout rates, completion status, average contributions, etc.
+
+- Suggest cycles with high metrics and active status.
+
+Models
+```
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Numeric, Date, Float
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(UUID(as_uuid=True), primary_key=True)
+    created_at = Column(DateTime)
+    full_name = Column(Text)
+    location = Column(Text)
+    profile_url = Column(Text)
+    nida_no = Column(Text)
+    email = Column(Text)
+    phone = Column(Text)
+    salary_amount = Column(Numeric)
+    job = Column(Text)
+    fcm_token = Column(Text)
+    gender = Column(String)
+    is_deletion = Column(Boolean)
+    deletion_request_date = Column(DateTime)
+    deletion_completion_date = Column(DateTime)
+    seen_on_cycle = Column(Boolean)
+    is_bot = Column(Boolean)
+
+class Cycle(Base):
+    __tablename__ = "cycles"
+    id = Column(Integer, primary_key=True)
+    contribution_plan_id = Column(Integer, ForeignKey("contribution_plans.id"))
+    start_date = Column(Date)
+    end_date = Column(Date)
+    cycle_status = Column(String)
+    current_enrolled_participants = Column(Integer)
+    next_contribution_date = Column(Date)
+    cycle_name = Column(Text)
+    is_auto_generated = Column(Boolean)
+
+class ContributionPlan(Base):
+    __tablename__ = "contribution_plans"
+    id = Column(Integer, primary_key=True)
+    admin_fee_amount = Column(Numeric)
+    payout_per_recipient = Column(Numeric)
+    frequency = Column(String)
+    name = Column(Text)
+
+class UserCycle(Base):
+    __tablename__ = "user_cycles"
+    id = Column(Integer, primary_key=True)
+    cycle_id = Column(Integer, ForeignKey("cycles.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime)
+    start_date = Column(DateTime)
+    end_date = Column(DateTime)
+    is_completed = Column(Boolean)
+    joined_at = Column(DateTime)
+    contribution_amount = Column(Numeric)
+
+class CycleContribution(Base):
+    __tablename__ = "cycle_contributions"
+    id = Column(Integer, primary_key=True)
+    cycle_id = Column(Integer, ForeignKey("cycles.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime)
+    payment_id = Column(Integer)
+    number_of_seats = Column(Integer)
+
+class UserCycleGoal(Base):
+    __tablename__ = "user_cycle_goals"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    cycle_id = Column(Integer, ForeignKey("cycles.id"))
+    goal_id = Column(Integer, ForeignKey("cycle_goals_options.id"))
+    created_at = Column(DateTime)
+
+class CycleGoalsOption(Base):
+    __tablename__ = "cycle_goals_options"
+    id = Column(Integer, primary_key=True)
+    name = Column(Text)
+    icon = Column(JSONB)
+    created_at = Column(DateTime)
+
+class CycleParticipantSlot(Base):
+    __tablename__ = "cycle_participant_slots"
+    id = Column(Integer, primary_key=True)
+    cycle_id = Column(Integer, ForeignKey("cycles.id"))
+    slot_status = Column(String)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    joined_at = Column(DateTime)
+
+class PayoutTable(Base):
+    __tablename__ = "payouts_table"
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime)
+    payout_date = Column(Date)
+    payout_amount = Column(Float)
+    payout_number = Column(Text)
+    payment_id = Column(Integer)
+    cycle_participant_slot_id = Column(Integer, ForeignKey("cycle_participant_slots.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    cycle_id = Column(Integer, ForeignKey("cycles.id"))
+    payout_status = Column(String)
+
+class Payment(Base):
+    __tablename__ = "payments"
+    id = Column(Integer, primary_key=True)
+    payment_reference_number = Column(String)
+    payment_channel = Column(String)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    cycle_id = Column(Integer, ForeignKey("cycles.id"))
+    payment_type = Column(String)
+    payment_status = Column(String)
+    created_at = Column(DateTime)
+    amount = Column(Numeric)
+
+class PaymentMethod(Base):
+    __tablename__ = "payment_methods"
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+    method_type = Column(String)
+    details = Column(Text)
+
+class UserWallet(Base):
+    __tablename__ = "user_wallet"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    payment_method_id = Column(Integer, ForeignKey("payment_methods.id"))
+    wallet_info = Column(Text)
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    cycle_id = Column(Integer, ForeignKey("cycles.id"))
+    title = Column(Text)
+    body = Column(Text)
+    notification_type = Column(String)
+    created_at = Column(DateTime)
+    seen = Column(Boolean)
+
+class UserGuarantor(Base):
+    __tablename__ = "user_guarantor"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    cycle_id = Column(Integer, ForeignKey("cycles.id"))
+    guarantor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime)
+
+class UserOnlinePresence(Base):
+    __tablename__ = "user_online_presence"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    cycle_id = Column(Integer, ForeignKey("cycles.id"))
+    last_seen = Column(DateTime)
+    is_active = Column(Boolean)
+
+class PaymentReferenceLog(Base):
+    __tablename__ = "payment_reference_log"
+    id = Column(Integer, primary_key=True)
+    payment_id = Column(Integer, ForeignKey("payments.id"))
+    reference_log = Column(Text)
+    created_at = Column(DateTime)
+
+# You can add more utility models as needed (enum definitions, etc.)
+
+
+```
+
+
+---
