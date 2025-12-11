@@ -162,7 +162,14 @@ KOKORO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Audio output directory
 AUDIO_OUTPUT_DIR = Path("audio_output")
-AUDIO_OUTPUT_DIR.mkdir(exist_ok=True)
+try:
+    AUDIO_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Verify the directory is writable
+    if not os.access(AUDIO_OUTPUT_DIR, os.W_OK):
+        logger.warning(f"⚠️ Audio output directory {AUDIO_OUTPUT_DIR} exists but is not writable. Audio generation may fail.")
+except Exception as e:
+    logger.error(f"❌ Failed to create audio output directory {AUDIO_OUTPUT_DIR}: {e}")
+    logger.error("Audio generation will likely fail. Please check directory permissions.")
 
 # ============================================================================
 # DATABASE CONFIGURATION (MONGODB)

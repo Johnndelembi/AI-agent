@@ -285,8 +285,30 @@ def _generate_kokoro_audio(text: str, voice: str, lang_code: str, filepath: str)
         all_segments.clear()
         del all_segments
         
+        # Ensure output directory exists and is writable before writing
+        output_dir = Path(filepath).parent
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            # Check if directory is writable
+            if not os.access(output_dir, os.W_OK):
+                raise PermissionError(f"Directory {output_dir} is not writable")
+        except Exception as dir_error:
+            logger.error(f"❌ Failed to create or access output directory {output_dir}: {dir_error}")
+            raise RuntimeError(f"Cannot write to audio output directory: {dir_error}") from dir_error
+        
         write_start = time.time()
-        sf.write(filepath, concatenated_audio, 24000)
+        try:
+            sf.write(filepath, concatenated_audio, 24000)
+        except Exception as write_error:
+            logger.error(f"❌ Failed to write audio file {filepath}: {write_error}")
+            # Check if it's a permission issue
+            if "Permission" in str(write_error) or "permission" in str(write_error).lower():
+                raise PermissionError(f"Cannot write to {filepath}: permission denied. Check directory permissions.") from write_error
+            # Check if it's a disk space issue
+            elif "No space" in str(write_error) or "ENOSPC" in str(write_error):
+                raise RuntimeError(f"Insufficient disk space to write {filepath}") from write_error
+            else:
+                raise RuntimeError(f"Failed to write audio file {filepath}: {write_error}") from write_error
         write_time = time.time() - write_start
         logger.info(f"🎉 Kokoro TTS audio saved: {filepath} (write took {write_time:.2f}s)")
         
