@@ -46,9 +46,9 @@ services:
       # API Keys - Set these in your .env file or override here
       - CHATBOT_API_KEY=${CHATBOT_API_KEY}
       - TAVILY_API_KEY=${TAVILY_API_KEY}
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      # - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       # Model configuration
       - CHATBOT_MODEL=${CHATBOT_MODEL:-openai:gpt-4}
       # Environment
@@ -107,9 +107,9 @@ services:
       # API Keys
       - CHATBOT_API_KEY=${CHATBOT_API_KEY}
       - TAVILY_API_KEY=${TAVILY_API_KEY}
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      # - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - CHATBOT_MODEL=${CHATBOT_MODEL:-openai:gpt-4}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       # MongoDB Configuration
