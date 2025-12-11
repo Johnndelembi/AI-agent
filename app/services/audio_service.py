@@ -47,7 +47,8 @@ class AudioService:
             audio_files = await asyncio.to_thread(generate_tts_audio, text, voice)
             
             if not audio_files or len(audio_files) == 0:
-                raise RuntimeError("Failed to generate audio file")
+                # This should rarely happen now since we raise exceptions instead of returning []
+                raise RuntimeError("TTS generation returned no audio files. Check logs for details.")
             
             # Read the generated audio file and save to GridFS
             audio_file_path = audio_files[0]
@@ -78,13 +79,17 @@ class AudioService:
             
             return file_id
         except Exception as e:
-            logger.error(f"TTS generation failed: {e}")
+            # Log the full error with traceback for debugging
+            logger.error(f"TTS generation failed: {e}", exc_info=True)
             # Clean up even on error
             try:
                 await asyncio.to_thread(clear_tts_cache)
                 await asyncio.to_thread(gc.collect)
             except:
                 pass
+            # Re-raise with more context if it's a generic RuntimeError
+            if isinstance(e, RuntimeError) and "Failed to generate" in str(e):
+                raise RuntimeError(f"Failed to generate audio file: {e}") from e
             raise
     
     async def get_audio_file(self, file_id: str) -> bytes:

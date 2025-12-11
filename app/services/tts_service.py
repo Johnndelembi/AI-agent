@@ -216,8 +216,9 @@ def generate_tts_audio(text: str, voice: str = None, lang_code: str = None) -> L
             return []
             
     except Exception as e:
-        logger.error(f"Error generating TTS audio: {e}")
-        return []
+        # Re-raise exceptions to preserve error details
+        logger.error(f"Error generating TTS audio: {e}", exc_info=True)
+        raise
 
 
 def _generate_kokoro_audio(text: str, voice: str, lang_code: str, filepath: str) -> List[str]:
@@ -292,21 +293,44 @@ def _generate_kokoro_audio(text: str, voice: str, lang_code: str, filepath: str)
             # Check if directory is writable
             if not os.access(output_dir, os.W_OK):
                 raise PermissionError(f"Directory {output_dir} is not writable")
-        except Exception as dir_error:
+            # Test write permissions by trying to create a temporary file
+            test_file = output_dir / ".write_test"
+            try:
+                test_file.touch()
+                test_file.unlink()
+            except Exception as test_error:
+                raise PermissionError(f"Cannot write to directory {output_dir}: {test_error}") from test_error
+        except (PermissionError, OSError) as dir_error:
             logger.error(f"❌ Failed to create or access output directory {output_dir}: {dir_error}")
+            raise RuntimeError(f"Cannot write to audio output directory: {dir_error}") from dir_error
+        except Exception as dir_error:
+            logger.error(f"❌ Unexpected error with output directory {output_dir}: {dir_error}")
             raise RuntimeError(f"Cannot write to audio output directory: {dir_error}") from dir_error
         
         write_start = time.time()
         try:
+            # Log the full path for debugging
+            abs_path = Path(filepath).absolute()
+            logger.debug(f"Writing audio to: {filepath} (absolute: {abs_path})")
+            # Verify parent directory one more time
+            if not output_dir.exists():
+                raise RuntimeError(f"Output directory {output_dir} does not exist")
             sf.write(filepath, concatenated_audio, 24000)
         except Exception as write_error:
+            error_msg = str(write_error)
             logger.error(f"❌ Failed to write audio file {filepath}: {write_error}")
+            logger.error(f"   Directory exists: {output_dir.exists()}, Writable: {os.access(output_dir, os.W_OK) if output_dir.exists() else 'N/A'}")
+            logger.error(f"   Absolute path: {Path(filepath).absolute()}")
+            
             # Check if it's a permission issue
-            if "Permission" in str(write_error) or "permission" in str(write_error).lower():
-                raise PermissionError(f"Cannot write to {filepath}: permission denied. Check directory permissions.") from write_error
+            if "Permission" in error_msg or "permission" in error_msg.lower() or "EACCES" in error_msg:
+                raise PermissionError(f"Cannot write to {filepath}: permission denied. Check directory permissions for {output_dir}") from write_error
             # Check if it's a disk space issue
-            elif "No space" in str(write_error) or "ENOSPC" in str(write_error):
+            elif "No space" in error_msg or "ENOSPC" in error_msg:
                 raise RuntimeError(f"Insufficient disk space to write {filepath}") from write_error
+            # Check for "System error" which often indicates file system issues
+            elif "System error" in error_msg or "EIO" in error_msg:
+                raise RuntimeError(f"File system error writing to {filepath}. This may indicate: 1) Directory doesn't exist, 2) Permission issues, 3) Disk problems, or 4) Volume mount issues in Docker. Check {output_dir}") from write_error
             else:
                 raise RuntimeError(f"Failed to write audio file {filepath}: {write_error}") from write_error
         write_time = time.time() - write_start
@@ -318,9 +342,14 @@ def _generate_kokoro_audio(text: str, voice: str, lang_code: str, filepath: str)
         _cleanup_old_audio_files()
         return [filepath]
         
-    except Exception as e:
+    except (RuntimeError, PermissionError, OSError) as e:
+        # Re-raise file I/O and permission errors so they propagate with details
         logger.error(f"❌ Error generating Kokoro TTS audio: {e}")
-        return []
+        raise
+    except Exception as e:
+        # Log unexpected errors but still re-raise them for better debugging
+        logger.error(f"❌ Unexpected error generating Kokoro TTS audio: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to generate TTS audio: {e}") from e
 
 
 def _cleanup_old_audio_files():
