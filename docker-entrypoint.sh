@@ -28,8 +28,19 @@ fi
 # Switch to app user and execute the main command
 # If running as root, switch to app user; otherwise just execute
 if [ "$(id -u)" = "0" ]; then
-    # We're root, switch to app user using su (preserve working directory)
-    exec su app -c "cd /app && exec \"\$@\"" -- "$@"
+    # We're root, switch to app user using su
+    if [ $# -eq 0 ]; then
+        exec su app
+    else
+        # Build command by properly quoting each argument
+        QUOTED_ARGS=()
+        for arg in "$@"; do
+            QUOTED_ARGS+=("$(printf '%q' "$arg")")
+        done
+        # Join with spaces and execute
+        CMD="${QUOTED_ARGS[*]}"
+        exec su app -c "cd /app && $CMD"
+    fi
 else
     # Already running as app user, just execute
     exec "$@"
