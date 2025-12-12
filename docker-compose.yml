@@ -92,6 +92,13 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # Memory limits to prevent OOM kills during TTS model loading
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+        reservations:
+          memory: 1G
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 3660s

@@ -45,3 +45,6 @@ else
     # Already running as app user, just execute
     exec "$@"
 fi
+
+
+
