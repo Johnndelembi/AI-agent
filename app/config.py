@@ -56,7 +56,10 @@ class Settings:
     # ============================================================================
     GOOGLE_CLIENT_ID: str = os.getenv('GOOGLE_CLIENT_ID', '')
     GOOGLE_CLIENT_SECRET: str = os.getenv('GOOGLE_CLIENT_SECRET', '')
+    # OAuth callback URL - must point to BACKEND API endpoint
     GOOGLE_REDIRECT_URI: str = os.getenv('GOOGLE_REDIRECT_URI', 'https://ai.ares.codes/auth/google/callback')
+    # Frontend URL - where users are redirected after successful authentication
+    FRONTEND_URL: str = os.getenv('FRONTEND_URL', 'https://artemis.ares.codes')
     
     # ============================================================================
     # TTS CONFIGURATION
@@ -286,6 +289,7 @@ __all__ = [
     'GOOGLE_CLIENT_ID',
     'GOOGLE_CLIENT_SECRET',
     'GOOGLE_REDIRECT_URI',
+    'FRONTEND_URL',
     
     # TTS
     'TTS_AVAILABLE',

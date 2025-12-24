@@ -1,8 +1,9 @@
 """Authentication controller for Google OAuth login and profile management."""
 
 import asyncio
+import json
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 
 from app.models.auth import (
     # Pydantic models
@@ -17,7 +18,7 @@ from app.services.oauth_service import google_oauth_service
 from app.utils.auth_utils import get_current_user, get_current_active_user, get_current_admin_user
 from app.utils.error_handler import handle_http_errors
 from app.dependencies import get_database
-from app.config import logger
+from app.config import logger, settings
 
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -47,35 +48,203 @@ async def google_login():
 
 @router.get("/google/callback", summary="Google OAuth callback")
 @handle_http_errors("Google OAuth callback failed")
-async def google_callback(code: str, db=Depends(get_database)):
+async def google_callback(code: str, state: str = None, format: str = None, db=Depends(get_database)):
     """
     Handles Google OAuth callback.
     
     - **code**: Authorization code from Google (automatically provided in query params)
+    - **state**: Optional state parameter for CSRF protection
+    - **format**: Response format - "json" for JSON, otherwise returns HTML page
     
-    Creates or updates user account and returns JWT tokens.
-    For frontend integration, tokens are returned in JSON response.
-    Frontend should extract tokens and store them for authenticated requests.
+    Creates or updates user account and returns:
+    - HTML page (default): Stores JWT tokens in localStorage and redirects to frontend
+    - JSON (if format=json): Returns tokens and user info as JSON for API clients
     """
     try:
         result = await google_oauth_service.handle_callback(code)
         
-        # Return tokens and user info
-        return {
+        # Prepare response data
+        response_data = {
             "access_token": result["access_token"],
             "refresh_token": result["refresh_token"],
             "token_type": result["token_type"],
             "expires_in": result["expires_in"],
             "user": result["user"]
         }
-    except HTTPException:
-        raise
+        
+        # Return JSON if requested (for API clients)
+        if format == "json":
+            return response_data
+        
+        # Return HTML page that stores tokens and redirects (for browser redirects)
+        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        tokens_json = json.dumps(response_data)
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Signing in...</title>
+            <meta charset="UTF-8">
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                }}
+                .container {{
+                    text-align: center;
+                    padding: 2rem;
+                }}
+                .spinner {{
+                    border: 4px solid rgba(255, 255, 255, 0.3);
+                    border-top: 4px solid white;
+                    border-radius: 50%;
+                    width: 40px;
+                    height: 40px;
+                    animation: spin 1s linear infinite;
+                    margin: 0 auto 1rem;
+                }}
+                @keyframes spin {{
+                    0% {{ transform: rotate(0deg); }}
+                    100% {{ transform: rotate(360deg); }}
+                }}
+                h1 {{
+                    margin: 0 0 0.5rem 0;
+                    font-size: 1.5rem;
+                }}
+                p {{
+                    margin: 0;
+                    opacity: 0.9;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="spinner"></div>
+                <h1>Signing you in...</h1>
+                <p>Please wait while we redirect you.</p>
+            </div>
+            <script>
+                // Store tokens in localStorage
+                const authData = {tokens_json};
+                localStorage.setItem('access_token', authData.access_token);
+                localStorage.setItem('refresh_token', authData.refresh_token);
+                localStorage.setItem('user', JSON.stringify(authData.user));
+                
+                // Redirect to frontend
+                window.location.href = '{frontend_url}';
+            </script>
+        </body>
+        </html>
+        """
+        
+        return HTMLResponse(content=html_content)
+        
+    except HTTPException as e:
+        # Return error page for browser redirects
+        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        error_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Authentication Error</title>
+            <meta charset="UTF-8">
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                    color: white;
+                }}
+                .container {{
+                    text-align: center;
+                    padding: 2rem;
+                    max-width: 500px;
+                }}
+                h1 {{
+                    margin: 0 0 1rem 0;
+                    font-size: 1.5rem;
+                }}
+                p {{
+                    margin: 0 0 1.5rem 0;
+                    opacity: 0.9;
+                }}
+                a {{
+                    color: white;
+                    text-decoration: underline;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Authentication Failed</h1>
+                <p>{e.detail}</p>
+                <p><a href="{frontend_url}">Return to home</a></p>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=error_html, status_code=e.status_code)
+        
     except Exception as e:
         logger.error(f"Google OAuth callback error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to complete Google OAuth: {str(e)}"
-        )
+        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        error_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Authentication Error</title>
+            <meta charset="UTF-8">
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                    color: white;
+                }}
+                .container {{
+                    text-align: center;
+                    padding: 2rem;
+                    max-width: 500px;
+                }}
+                h1 {{
+                    margin: 0 0 1rem 0;
+                    font-size: 1.5rem;
+                }}
+                p {{
+                    margin: 0 0 1.5rem 0;
+                    opacity: 0.9;
+                }}
+                a {{
+                    color: white;
+                    text-decoration: underline;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Authentication Failed</h1>
+                <p>An error occurred during authentication. Please try again.</p>
+                <p><a href="{frontend_url}">Return to home</a></p>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=error_html, status_code=500)
 
 
 @router.post("/refresh", response_model=TokenResponse, summary="Refresh access token")
