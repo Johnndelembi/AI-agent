@@ -53,3 +53,4 @@ passlib[bcrypt]
 argon2-cffi  # Password hashing
 python-multipart  # For form data parsing
 pydantic[email]  # Email validation
+authlib  # OAuth library for Google authentication

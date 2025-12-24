@@ -52,6 +52,13 @@ class Settings:
     SENDER_PASSWORD: str = os.getenv('SENDER_PASSWORD')
     
     # ============================================================================
+    # GOOGLE OAUTH CONFIGURATION
+    # ============================================================================
+    GOOGLE_CLIENT_ID: str = os.getenv('GOOGLE_CLIENT_ID', '')
+    GOOGLE_CLIENT_SECRET: str = os.getenv('GOOGLE_CLIENT_SECRET', '')
+    GOOGLE_REDIRECT_URI: str = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:8000/auth/google/callback')
+    
+    # ============================================================================
     # TTS CONFIGURATION
     # ============================================================================
     TTS_VOICE: str = os.getenv("TTS_VOICE", "af_heart")
@@ -274,6 +281,11 @@ __all__ = [
     'SMTP_PORT',
     'SENDER_EMAIL',
     'SENDER_PASSWORD',
+    
+    # Google OAuth
+    'GOOGLE_CLIENT_ID',
+    'GOOGLE_CLIENT_SECRET',
+    'GOOGLE_REDIRECT_URI',
     
     # TTS
     'TTS_AVAILABLE',

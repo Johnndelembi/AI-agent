@@ -31,10 +31,13 @@ class User(Document):
     
     # Authentication
     email = EmailField(required=True, unique=True)
-    password_hash = StringField(required=True)
+    password_hash = StringField(default=None)  # Optional for Google OAuth users
+    google_id = StringField(default=None)  # Google OAuth user ID (unique, sparse)
     
     # Profile
-    phone_number = StringField(required=True)
+    phone_number = StringField(default="")  # Optional, to be filled later
+    first_name = StringField(default="")
+    last_name = StringField(default="")
     fullname = StringField(default="")
     
     # Optional physical address
@@ -69,7 +72,9 @@ class User(Document):
             'is_employee',
             'created_at',
             # Explicit unique sparse for optional employee_id
-            {'fields': ['employee_id'], 'unique': True, 'sparse': True, 'name': 'uniq_employee_id'}
+            {'fields': ['employee_id'], 'unique': True, 'sparse': True, 'name': 'uniq_employee_id'},
+            # Explicit unique sparse for optional google_id
+            {'fields': ['google_id'], 'unique': True, 'sparse': True, 'name': 'uniq_google_id'}
         ]
     }
     
@@ -79,6 +84,8 @@ class User(Document):
     
     def verify_password(self, password: str) -> bool:
         """Verify password against hash."""
+        if not self.password_hash:
+            return False  # Google OAuth users don't have passwords
         return pwd_context.verify(password, self.password_hash)
     
     def update_last_login(self):
@@ -92,7 +99,9 @@ class User(Document):
             'id': str(self.id),
             'email': self.email,
             'phone_number': self.phone_number,
-            'fullname': self.fullname,
+            'first_name': self.first_name,
+            'last_name': self.last_name,
+            'fullname': self.fullname or f"{self.first_name} {self.last_name}".strip(),
             'address': {
                 'city': self.city
             } if self.city else None,
@@ -171,142 +180,11 @@ class User(Document):
     def get_by_employee_id(cls, employee_id: str) -> Optional['User']:
         """Get user by employee ID."""
         return cls.objects(employee_id=employee_id).first()
-
-
-class OTPVerification(Document):
-    """OTP codes for email verification during registration."""
-    
-    email = StringField(required=True, unique=True)
-    code = StringField(required=True)
-    password_hash = StringField(required=True)
-    phone_number = StringField(required=True)
-    fullname = StringField(default="")
-    city = StringField(default="")
-    is_verified = BooleanField(default=False)
-    attempts = IntField(default=0)
-    created_at = DateTimeField(default=datetime.utcnow)
-    expires_at = DateTimeField(required=True)
-    verified_at = DateTimeField(default=None)
-    
-    meta = {
-        'collection': 'otp_verifications',
-        'indexes': [
-            'expires_at'
-            # unique index for email is provided by field unique=True; no duplicate entry here
-        ]
-    }
     
     @classmethod
-    def generate_code(cls) -> str:
-        """Generate 4-digit OTP code."""
-        return ''.join(random.choices(string.digits, k=4))
-    
-    @classmethod
-    def create_otp(cls, email: str, password_hash: str, phone_number: str, 
-                   expiry_minutes: int = 1, **user_data) -> 'OTPVerification':
-        """Create new OTP verification entry."""
-        try:
-            # Delete any existing OTP for this email
-            existing_otps = cls.objects(email=email)
-            if existing_otps:
-                existing_otps.delete()
-            
-            # Create new OTP entry
-            otp = cls(
-                email=email,
-                code=cls.generate_code(),
-                password_hash=password_hash,
-                phone_number=phone_number,
-                fullname=user_data.get('fullname', ''),
-                city=user_data.get('city', ''),
-                expires_at=datetime.utcnow() + timedelta(minutes=expiry_minutes)
-            )
-            otp.save()
-            return otp
-        except Exception as e:
-            # Log the error and re-raise with more context
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to create OTP for {email}: {str(e)}")
-            raise Exception(f"Database error while creating OTP: {str(e)}") from e
-    
-    def is_expired(self) -> bool:
-        return datetime.utcnow() > self.expires_at
-    
-    def verify_code(self, code: str) -> bool:
-        self.attempts += 1
-        self.save()
-        if self.is_expired() or self.code != code:
-            return False
-        self.is_verified = True
-        self.verified_at = datetime.utcnow()
-        self.save()
-        return True
-    
-    @classmethod
-    def get_by_email(cls, email: str) -> 'OTPVerification':
-        return cls.objects(email=email).first()
-
-
-class PasswordResetToken(Document):
-    """Password reset tokens for forgot password flow."""
-    
-    email = StringField(required=True)
-    token = StringField(required=True, unique=True)
-    is_used = BooleanField(default=False)
-    created_at = DateTimeField(default=datetime.utcnow)
-    expires_at = DateTimeField(required=True)
-    used_at = DateTimeField(default=None)
-    
-    meta = {
-        'collection': 'password_reset_tokens',
-        'indexes': [
-            'expires_at'
-            # unique index for token is provided by field unique=True; no duplicate entry here
-        ]
-    }
-    
-    @classmethod
-    def generate_token(cls) -> str:
-        return ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-    
-    @classmethod
-    def create_reset_token(cls, email: str, expiry_hours: int = 1) -> 'PasswordResetToken':
-        try:
-            # Delete any existing reset tokens for this email
-            existing_tokens = cls.objects(email=email)
-            if existing_tokens:
-                existing_tokens.delete()
-            
-            # Create new reset token
-            token = cls(
-                email=email,
-                token=cls.generate_token(),
-                expires_at=datetime.utcnow() + timedelta(hours=expiry_hours)
-            )
-            token.save()
-            return token
-        except Exception as e:
-            # Log the error and re-raise with more context
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to create reset token for {email}: {str(e)}")
-            raise Exception(f"Database error while creating reset token: {str(e)}") from e
-    
-    def is_expired(self) -> bool:
-        return datetime.utcnow() > self.expires_at
-    
-    def is_valid(self) -> bool:
-        return not self.is_used and not self.is_expired()
-    
-    def mark_as_used(self):
-        self.is_used = True
-        self.used_at = datetime.utcnow()
-        self.save()
-    
-    @classmethod
-    def get_by_token(cls, token: str) -> 'PasswordResetToken':
-        return cls.objects(token=token).first()
+    def get_by_google_id(cls, google_id: str) -> Optional['User']:
+        """Get user by Google ID."""
+        return cls.objects(google_id=google_id).first()
 
 
 # ============================================================================
@@ -314,28 +192,6 @@ class PasswordResetToken(Document):
 # ============================================================================
 
 
-class RegisterRequest(BaseModel):
-    """User registration request."""
-    email: EmailStr
-    password: str = Field(..., min_length=1, description="Password")
-    phone_number: str = Field(..., min_length=1, description="Phone number")
-    fullname: Optional[str] = ""
-    city: Optional[str] = ""
-    
-    @validator('phone_number')
-    def validate_phone(cls, v):
-        """Basic phone number validation."""
-        # Remove common separators and + sign
-        cleaned = v.replace('-', '').replace(' ', '').replace('(', '').replace(')', '').replace('+', '')
-        if not cleaned.isdigit() or len(cleaned) < 10:
-            raise ValueError('Invalid phone number format')
-        return v
-
-
-class LoginRequest(BaseModel):
-    """User login request."""
-    email: EmailStr
-    password: str
 
 
 class TokenResponse(BaseModel):
@@ -356,6 +212,8 @@ class UserResponse(BaseModel):
     id: str
     email: str
     phone_number: str
+    first_name: str = ""
+    last_name: str = ""
     fullname: str
     address: Optional[dict] = None
     is_active: bool
@@ -371,51 +229,13 @@ class UserResponse(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     """Update user profile request."""
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     fullname: Optional[str] = None
     phone_number: Optional[str] = None
     city: Optional[str] = None
 
 
-class ChangePasswordRequest(BaseModel):
-    """Change password request."""
-    current_password: str
-    new_password: str = Field(..., min_length=1)
-
-
-class VerifyEmailRequest(BaseModel):
-    """Verify email with OTP code."""
-    email: EmailStr
-    code: str = Field(..., min_length=4, max_length=4, description="4-digit verification code")
-    
-    @validator('code')
-    def validate_code(cls, v):
-        """Validate code is 4 digits."""
-        if not v.isdigit() or len(v) != 4:
-            raise ValueError('Code must be exactly 4 digits')
-        return v
-
-
-class ResendOTPRequest(BaseModel):
-    """Resend OTP code request."""
-    email: EmailStr
-
-
-class ForgotPasswordRequest(BaseModel):
-    """Forgot password request."""
-    email: EmailStr
-
-
-class ResetPasswordRequest(BaseModel):
-    """Reset password with token."""
-    token: str = Field(..., min_length=32, max_length=32)
-    new_password: str = Field(..., min_length=1)
-
-
-class RegistrationResponse(BaseModel):
-    """Response after initiating registration (before verification)."""
-    message: str
-    email: str
-    expires_in_seconds: int
 
 
 class AdminPatchUserRequest(BaseModel):

@@ -81,11 +81,14 @@ async def get_current_verified_user(
     """
     Dependency to get current verified user.
     Raises 403 if user is not verified.
+    
+    Note: Google-authenticated users are automatically verified.
+    This check is mainly for backward compatibility with existing users.
     """
     if not current_user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email verification required"
+            detail="Account verification required"
         )
     return current_user
 
