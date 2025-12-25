@@ -60,8 +60,11 @@ async def google_callback(code: str, state: str = None, format: str = None, db=D
     - HTML page (default): Stores JWT tokens in localStorage and redirects to frontend
     - JSON (if format=json): Returns tokens and user info as JSON for API clients
     """
+    logger.info(f"Google OAuth callback received: code={code[:20]}..., state={state}")
+    
     try:
         result = await google_oauth_service.handle_callback(code)
+        logger.info("Google OAuth callback processed successfully")
         
         # Prepare response data
         response_data = {
@@ -77,7 +80,6 @@ async def google_callback(code: str, state: str = None, format: str = None, db=D
             return response_data
         
         # Return HTML page that stores tokens and redirects (for browser redirects)
-        frontend_url = settings.FRONTEND_URL.rstrip('/')
         tokens_json = json.dumps(response_data)
         
         html_content = f"""
@@ -138,7 +140,7 @@ async def google_callback(code: str, state: str = None, format: str = None, db=D
                 localStorage.setItem('user', JSON.stringify(authData.user));
                 
                 // Redirect to frontend
-                window.location.href = '{frontend_url}';
+                window.location.href = 'https://artemis.ares.codes';
             </script>
         </body>
         </html>
@@ -147,8 +149,7 @@ async def google_callback(code: str, state: str = None, format: str = None, db=D
         return HTMLResponse(content=html_content)
         
     except HTTPException as e:
-        # Return error page for browser redirects
-        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        # Return error 
         error_html = f"""
         <!DOCTYPE html>
         <html>
@@ -189,7 +190,7 @@ async def google_callback(code: str, state: str = None, format: str = None, db=D
             <div class="container">
                 <h1>Authentication Failed</h1>
                 <p>{e.detail}</p>
-                <p><a href="{frontend_url}">Return to home</a></p>
+                <p><a href="https://artemis.ares.codes">Return to home</a></p>
             </div>
         </body>
         </html>
@@ -198,7 +199,6 @@ async def google_callback(code: str, state: str = None, format: str = None, db=D
         
     except Exception as e:
         logger.error(f"Google OAuth callback error: {str(e)}")
-        frontend_url = settings.FRONTEND_URL.rstrip('/')
         error_html = f"""
         <!DOCTYPE html>
         <html>
@@ -239,7 +239,7 @@ async def google_callback(code: str, state: str = None, format: str = None, db=D
             <div class="container">
                 <h1>Authentication Failed</h1>
                 <p>An error occurred during authentication. Please try again.</p>
-                <p><a href="{frontend_url}">Return to home</a></p>
+                <p><a href="https://artemis.ares.codes">Return to home</a></p>
             </div>
         </body>
         </html>
