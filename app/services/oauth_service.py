@@ -29,12 +29,13 @@ class GoogleOAuthService:
         """Check if Google OAuth is configured."""
         return bool(self.client_id and self.client_secret)
     
-    def get_authorization_url(self, state: Optional[str] = None) -> str:
+    def get_authorization_url(self, state: Optional[str] = None, redirect_uri: Optional[str] = None) -> str:
         """
         Generate Google OAuth authorization URL.
         
         Args:
             state: Optional state parameter for CSRF protection
+            redirect_uri: Optional custom redirect URI (defaults to configured redirect_uri)
             
         Returns:
             Authorization URL to redirect user to
@@ -44,6 +45,9 @@ class GoogleOAuthService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Google OAuth not configured. Please contact administrator."
             )
+        
+        # Use provided redirect_uri or fall back to configured one
+        redirect_uri_to_use = redirect_uri or self.redirect_uri
         
         # Google OAuth endpoints
         authorization_base_url = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -59,7 +63,7 @@ class GoogleOAuthService:
         oauth_client = AsyncOAuth2Client(
             client_id=self.client_id,
             client_secret=self.client_secret,
-            redirect_uri=self.redirect_uri
+            redirect_uri=redirect_uri_to_use
         )
         
         # Generate authorization URL
@@ -71,12 +75,13 @@ class GoogleOAuthService:
         
         return authorization_url
     
-    async def handle_callback(self, code: str) -> Dict[str, Any]:
+    async def handle_callback(self, code: str, redirect_uri: Optional[str] = None) -> Dict[str, Any]:
         """
         Handle Google OAuth callback and create/update user.
         
         Args:
             code: Authorization code from Google OAuth callback
+            redirect_uri: Optional custom redirect URI (must match the one used in authorization URL)
             
         Returns:
             Dictionary with access_token, refresh_token, and user info
@@ -87,6 +92,10 @@ class GoogleOAuthService:
                 detail="Google OAuth not configured. Please contact administrator."
             )
         
+        # Use provided redirect_uri or fall back to configured one
+        # IMPORTANT: This must match the redirect_uri used in get_authorization_url()
+        redirect_uri_to_use = redirect_uri or self.redirect_uri
+        
         # Google OAuth endpoints
         token_url = "https://oauth2.googleapis.com/token"
         userinfo_url = "https://www.googleapis.com/oauth2/v2/userinfo"
@@ -95,7 +104,7 @@ class GoogleOAuthService:
         oauth_client = AsyncOAuth2Client(
             client_id=self.client_id,
             client_secret=self.client_secret,
-            redirect_uri=self.redirect_uri
+            redirect_uri=redirect_uri_to_use
         )
         
         try:
