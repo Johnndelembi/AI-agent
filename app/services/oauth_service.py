@@ -109,10 +109,23 @@ class GoogleOAuthService:
         
         try:
             # Exchange authorization code for tokens
-            token_response = await oauth_client.fetch_token(
-                token_url,
-                code=code
-            )
+            # Note: Authorization codes can only be used once
+            try:
+                token_response = await oauth_client.fetch_token(
+                    token_url,
+                    code=code
+                )
+            except Exception as token_error:
+                error_msg = str(token_error)
+                # Check if it's an invalid_grant error (code already used or expired)
+                if "invalid_grant" in error_msg.lower():
+                    logger.warning(f"Authorization code already used or expired: {code[:20]}...")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="This authorization code has already been used or has expired. Please try signing in again."
+                    )
+                # Re-raise other errors
+                raise
             
             access_token = token_response.get('access_token')
             if not access_token:

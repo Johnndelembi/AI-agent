@@ -61,11 +61,16 @@ async def google_callback(code: str, state: str = None, redirect_uri: str = None
     - **code**: Authorization code from Google (required)
     - **state**: Optional state parameter for CSRF protection
     - **redirect_uri**: Optional redirect URI (must match the one used in authorization URL)
+    
+    Note: Authorization codes can only be used once. If you get an "invalid_grant" error,
+    the code has already been used - please initiate a new OAuth flow.
     """
     logger.info(f"Google OAuth callback received: code={code[:20]}..., redirect_uri={redirect_uri}")
     
     try:
         result = await google_oauth_service.handle_callback(code, redirect_uri=redirect_uri)
+        
+        logger.info(f"Successfully exchanged code for tokens for user: {result['user'].get('email', 'unknown')}")
         
         return {
             "access_token": result["access_token"],
@@ -75,11 +80,23 @@ async def google_callback(code: str, state: str = None, redirect_uri: str = None
             "user": result["user"]
         }
         
-    except HTTPException:
+    except HTTPException as e:
+        # If it's an invalid_grant error, provide a more helpful message
+        if "already been used" in str(e.detail) or "invalid_grant" in str(e.detail).lower():
+            logger.warning(f"Authorization code reuse attempt: {code[:20]}...")
         raise
     except Exception as e:
-        logger.error(f"Google OAuth callback error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        error_msg = str(e)
+        logger.error(f"Google OAuth callback error: {error_msg}")
+        
+        # Provide user-friendly error message for common issues
+        if "invalid_grant" in error_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="This authorization code has already been used or has expired. Please try signing in again."
+            )
+        
+        raise HTTPException(status_code=400, detail=f"Authentication failed: {error_msg}")
 
 
 @router.post("/refresh", response_model=TokenResponse, summary="Refresh access token")
