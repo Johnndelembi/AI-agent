@@ -26,48 +26,42 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 
 @router.get("/google/login", summary="Initiate Google OAuth login")
 @handle_http_errors("Failed to initiate Google OAuth")
-async def google_login():
+async def google_login(redirect_uri: str = None, frontend_url: str = None):
     """
-    Redirects user to Google OAuth consent screen.
+    Initiates Google OAuth flow.
     
-    User will be redirected to Google to sign in, then redirected back to
-    `/auth/google/callback` with an authorization code.
+    - **redirect_uri**: Where Google should redirect after auth (default: frontend callback)
+    - **frontend_url**: Frontend URL (for fallback)
     """
-    try:
-        authorization_url = google_oauth_service.get_authorization_url()
-        return RedirectResponse(url=authorization_url)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to generate Google OAuth URL: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to initiate Google OAuth login"
-        )
+    # Use frontend callback URL if provided, otherwise use backend
+    if redirect_uri:
+        callback_url = redirect_uri
+    elif frontend_url:
+        callback_url = f"{frontend_url}/auth/google/callback"
+    else:
+        # Default to frontend callback
+        callback_url = "https://artemis.ares.codes/auth/google/callback"
+    
+    # Generate OAuth URL with frontend callback
+    oauth_url = google_oauth_service.get_authorization_url(
+        redirect_uri=callback_url
+    )
+    
+    return RedirectResponse(url=oauth_url)
 
 
-@router.get("/google/callback", summary="Google OAuth callback")
-@handle_http_errors("Google OAuth callback failed")
-async def google_callback(code: str, state: str = None, format: str = None, db=Depends(get_database)):
+@router.get("/google/callback")
+async def google_callback(code: str, state: str = None, db=Depends(get_database)):
     """
-    Handles Google OAuth callback.
-    
-    - **code**: Authorization code from Google (automatically provided in query params)
-    - **state**: Optional state parameter for CSRF protection
-    - **format**: Response format - "json" for JSON, otherwise returns HTML page
-    
-    Creates or updates user account and returns:
-    - HTML page (default): Stores JWT tokens in localStorage and redirects to frontend
-    - JSON (if format=json): Returns tokens and user info as JSON for API clients
+    Handles Google OAuth callback - called by FRONTEND to exchange code for tokens.
+    This is an API endpoint, not a redirect target.
     """
-    logger.info(f"Google OAuth callback received: code={code[:20]}..., state={state}")
+    logger.info(f"Google OAuth callback received: code={code[:20]}...")
     
     try:
         result = await google_oauth_service.handle_callback(code)
-        logger.info("Google OAuth callback processed successfully")
         
-        # Prepare response data
-        response_data = {
+        return {
             "access_token": result["access_token"],
             "refresh_token": result["refresh_token"],
             "token_type": result["token_type"],
@@ -75,176 +69,9 @@ async def google_callback(code: str, state: str = None, format: str = None, db=D
             "user": result["user"]
         }
         
-        # Return JSON if requested (for API clients)
-        if format == "json":
-            return response_data
-        
-        # Return HTML page that stores tokens and redirects (for browser redirects)
-        tokens_json = json.dumps(response_data)
-        
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Signing in...</title>
-            <meta charset="UTF-8">
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    height: 100vh;
-                    margin: 0;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                }}
-                .container {{
-                    text-align: center;
-                    padding: 2rem;
-                }}
-                .spinner {{
-                    border: 4px solid rgba(255, 255, 255, 0.3);
-                    border-top: 4px solid white;
-                    border-radius: 50%;
-                    width: 40px;
-                    height: 40px;
-                    animation: spin 1s linear infinite;
-                    margin: 0 auto 1rem;
-                }}
-                @keyframes spin {{
-                    0% {{ transform: rotate(0deg); }}
-                    100% {{ transform: rotate(360deg); }}
-                }}
-                h1 {{
-                    margin: 0 0 0.5rem 0;
-                    font-size: 1.5rem;
-                }}
-                p {{
-                    margin: 0;
-                    opacity: 0.9;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="spinner"></div>
-                <h1>Signing you in...</h1>
-                <p>Please wait while we redirect you.</p>
-            </div>
-            <script>
-                // Store tokens in localStorage
-                const authData = {tokens_json};
-                localStorage.setItem('access_token', authData.access_token);
-                localStorage.setItem('refresh_token', authData.refresh_token);
-                localStorage.setItem('user', JSON.stringify(authData.user));
-                
-                // Redirect to frontend
-                window.location.href = 'https://artemis.ares.codes';
-            </script>
-        </body>
-        </html>
-        """
-        
-        return HTMLResponse(content=html_content)
-        
-    except HTTPException as e:
-        # Return error 
-        error_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Authentication Error</title>
-            <meta charset="UTF-8">
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    height: 100vh;
-                    margin: 0;
-                    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-                    color: white;
-                }}
-                .container {{
-                    text-align: center;
-                    padding: 2rem;
-                    max-width: 500px;
-                }}
-                h1 {{
-                    margin: 0 0 1rem 0;
-                    font-size: 1.5rem;
-                }}
-                p {{
-                    margin: 0 0 1.5rem 0;
-                    opacity: 0.9;
-                }}
-                a {{
-                    color: white;
-                    text-decoration: underline;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>Authentication Failed</h1>
-                <p>{e.detail}</p>
-                <p><a href="https://artemis.ares.codes">Return to home</a></p>
-            </div>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=error_html, status_code=e.status_code)
-        
     except Exception as e:
         logger.error(f"Google OAuth callback error: {str(e)}")
-        error_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Authentication Error</title>
-            <meta charset="UTF-8">
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    height: 100vh;
-                    margin: 0;
-                    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-                    color: white;
-                }}
-                .container {{
-                    text-align: center;
-                    padding: 2rem;
-                    max-width: 500px;
-                }}
-                h1 {{
-                    margin: 0 0 1rem 0;
-                    font-size: 1.5rem;
-                }}
-                p {{
-                    margin: 0 0 1.5rem 0;
-                    opacity: 0.9;
-                }}
-                a {{
-                    color: white;
-                    text-decoration: underline;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>Authentication Failed</h1>
-                <p>An error occurred during authentication. Please try again.</p>
-                <p><a href="https://artemis.ares.codes">Return to home</a></p>
-            </div>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=error_html, status_code=500)
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/refresh", response_model=TokenResponse, summary="Refresh access token")
