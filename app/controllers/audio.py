@@ -7,13 +7,14 @@ from fastapi.responses import Response
 from mongoengine.connection import get_db
 from gridfs import GridFS
 
-from app.models.chat import AudioRequest, AudioResponse
+from app.models.chat import AudioRequest, AudioResponse, TTSVoiceRequest, TTSVoiceResponse, VoiceInfo
 from app.models.auth import User
 from app.services.audio_service import AudioService
 from app.services.chat_service import ChatService
 from app.dependencies import get_audio_service, get_chat_service
 from app.utils.auth_utils import get_current_user
 from app.utils.error_handler import handle_http_errors
+from app.config import AVAILABLE_VOICES, VOICE_DESCRIPTIONS, settings, logger
 
 router = APIRouter(prefix="/audio", tags=["audio"])
 
@@ -169,4 +170,68 @@ async def check_tts_available(
         "available": is_available,
         "message": "TTS service is available" if is_available else "TTS service is not available"
     }
+
+
+@router.post("/voice/select", response_model=TTSVoiceResponse, summary="Select TTS voice")
+@handle_http_errors("Error selecting TTS voice")
+async def select_tts_voice(
+    request: TTSVoiceRequest,
+    current_user: User = Depends(get_current_user)
+) -> TTSVoiceResponse:
+    """
+    Select the TTS voice to use for audio generation.
+    
+    - **voice**: Voice to use for TTS (must be from available voices)
+    
+    Requires: Valid JWT token in Authorization header.
+    """
+    # Validate voice is in available voices
+    if request.voice not in AVAILABLE_VOICES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid voice '{request.voice}'. Available voices: {', '.join(AVAILABLE_VOICES)}"
+        )
+    
+    # Update settings
+    settings.TTS_VOICE = request.voice
+    
+    # Also update module-level variable for backward compatibility
+    import app.config as config_module
+    config_module.TTS_VOICE = request.voice
+    
+    logger.info(f"TTS voice updated to: {request.voice} by user {current_user.email}")
+    
+    # Build voice info list
+    available_voices_info = [
+        VoiceInfo(code=voice, description=VOICE_DESCRIPTIONS.get(voice, "Unknown voice"))
+        for voice in AVAILABLE_VOICES
+    ]
+    
+    return TTSVoiceResponse(
+        current_voice=request.voice,
+        current_voice_description=VOICE_DESCRIPTIONS.get(request.voice, "Unknown voice"),
+        available_voices=available_voices_info
+    )
+
+
+@router.get("/voice/current", response_model=TTSVoiceResponse, summary="Get current TTS voice")
+async def get_current_tts_voice(
+    current_user: User = Depends(get_current_user)
+) -> TTSVoiceResponse:
+    """
+    Get the currently selected TTS voice and list of available voices with descriptions.
+    
+    Requires: Valid JWT token in Authorization header.
+    """
+    # Build voice info list
+    available_voices_info = [
+        VoiceInfo(code=voice, description=VOICE_DESCRIPTIONS.get(voice, "Unknown voice"))
+        for voice in AVAILABLE_VOICES
+    ]
+    
+    return TTSVoiceResponse(
+        current_voice=settings.TTS_VOICE,
+        current_voice_description=VOICE_DESCRIPTIONS.get(settings.TTS_VOICE, "Unknown voice"),
+        available_voices=available_voices_info
+    )
 

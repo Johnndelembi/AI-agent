@@ -51,3 +51,21 @@ class HealthResponse(BaseModel):
     version: str = Field(..., description="API version")
     services: Dict[str, bool] = Field(..., description="Status of dependent services")
 
+
+class TTSVoiceRequest(BaseModel):
+    """Request model for selecting TTS voice."""
+    voice: str = Field(..., description="Voice to use for TTS (must be from available voices)")
+
+
+class VoiceInfo(BaseModel):
+    """Voice information with code and description."""
+    code: str = Field(..., description="Voice code (e.g., 'af_heart')")
+    description: str = Field(..., description="Human-readable voice description")
+
+
+class TTSVoiceResponse(BaseModel):
+    """Response model for TTS voice selection."""
+    current_voice: str = Field(..., description="Currently selected TTS voice code")
+    current_voice_description: str = Field(..., description="Description of the currently selected voice")
+    available_voices: List[VoiceInfo] = Field(..., description="List of available TTS voices with descriptions")
+

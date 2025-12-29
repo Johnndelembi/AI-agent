@@ -52,16 +52,6 @@ class Settings:
     SENDER_PASSWORD: str = os.getenv('SENDER_PASSWORD')
     
     # ============================================================================
-    # GOOGLE OAUTH CONFIGURATION
-    # ============================================================================
-    GOOGLE_CLIENT_ID: str = os.getenv('GOOGLE_CLIENT_ID', '')
-    GOOGLE_CLIENT_SECRET: str = os.getenv('GOOGLE_CLIENT_SECRET', '')
-    # OAuth callback URL - must point to BACKEND API endpoint
-    GOOGLE_REDIRECT_URI: str = os.getenv('GOOGLE_REDIRECT_URI', 'https://ai.ares.codes/auth/google/callback')
-    # Frontend URL - where users are redirected after successful authentication
-    FRONTEND_URL: str = os.getenv('FRONTEND_URL', 'https://artemis.ares.codes')
-    
-    # ============================================================================
     # TTS CONFIGURATION
     # ============================================================================
     TTS_VOICE: str = os.getenv("TTS_VOICE", "af_heart")
@@ -172,14 +162,7 @@ KOKORO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Audio output directory
 AUDIO_OUTPUT_DIR = Path("audio_output")
-try:
-    AUDIO_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    # Verify the directory is writable
-    if not os.access(AUDIO_OUTPUT_DIR, os.W_OK):
-        logger.warning(f"⚠️ Audio output directory {AUDIO_OUTPUT_DIR} exists but is not writable. Audio generation may fail.")
-except Exception as e:
-    logger.error(f"❌ Failed to create audio output directory {AUDIO_OUTPUT_DIR}: {e}")
-    logger.error("Audio generation will likely fail. Please check directory permissions.")
+AUDIO_OUTPUT_DIR.mkdir(exist_ok=True)
 
 # ============================================================================
 # DATABASE CONFIGURATION (MONGODB)
@@ -259,6 +242,26 @@ AVAILABLE_VOICES = [
     "bm_heart", "bm_angry", "bm_sad", "bm_happy"
 ]
 
+# Voice descriptions for user-friendly display
+VOICE_DESCRIPTIONS = {
+    "af_heart": "Female Voice A - Warm/Neutral",
+    "af_angry": "Female Voice A - Angry",
+    "af_sad": "Female Voice A - Sad",
+    "af_happy": "Female Voice A - Happy",
+    "am_heart": "Male Voice A - Warm/Neutral",
+    "am_angry": "Male Voice A - Angry",
+    "am_sad": "Male Voice A - Sad",
+    "am_happy": "Male Voice A - Happy",
+    "bf_heart": "Female Voice B - Warm/Neutral",
+    "bf_angry": "Female Voice B - Angry",
+    "bf_sad": "Female Voice B - Sad",
+    "bf_happy": "Female Voice B - Happy",
+    "bm_heart": "Male Voice B - Warm/Neutral",
+    "bm_angry": "Male Voice B - Angry",
+    "bm_sad": "Male Voice B - Sad",
+    "bm_happy": "Male Voice B - Happy",
+}
+
 # ============================================================================
 # EXPORT ALL SETTINGS
 # ============================================================================
@@ -285,12 +288,6 @@ __all__ = [
     'SENDER_EMAIL',
     'SENDER_PASSWORD',
     
-    # Google OAuth
-    'GOOGLE_CLIENT_ID',
-    'GOOGLE_CLIENT_SECRET',
-    'GOOGLE_REDIRECT_URI',
-    'FRONTEND_URL',
-    
     # TTS
     'TTS_AVAILABLE',
     'TTS_ENGINE',
@@ -299,6 +296,7 @@ __all__ = [
     'KOKORO_CACHE_DIR',
     'AUDIO_OUTPUT_DIR',
     'AVAILABLE_VOICES',
+    'VOICE_DESCRIPTIONS',
     'configure_kokoro_environment',
     
     # Database

@@ -30,21 +30,19 @@ async def google_login(redirect_uri: str = None, frontend_url: str = None):
     """
     Initiates Google OAuth flow.
     
-    - **redirect_uri**: Where Google should redirect after auth (default: backend callback)
-    - **frontend_url**: Frontend URL (for constructing callback URL if redirect_uri not provided)
-    
-    If redirect_uri is not provided, defaults to backend callback URL.
+    - **redirect_uri**: Where Google should redirect after auth (default: frontend callback)
+    - **frontend_url**: Frontend URL (for fallback)
     """
-    # Use provided redirect_uri, or construct from frontend_url, or use default backend callback
+    # Use frontend callback URL if provided, otherwise use backend
     if redirect_uri:
         callback_url = redirect_uri
     elif frontend_url:
-        callback_url = f"{frontend_url.rstrip('/')}/auth/google/callback"
+        callback_url = f"{frontend_url}/auth/google/callback"
     else:
-        # Default to backend callback (from config)
-        callback_url = settings.GOOGLE_REDIRECT_URI
+        # Default to frontend callback
+        callback_url = "https://artemis.ares.codes/auth/google/callback"
     
-    # Generate OAuth URL with the callback URL
+    # Generate OAuth URL with frontend callback
     oauth_url = google_oauth_service.get_authorization_url(
         redirect_uri=callback_url
     )
@@ -53,24 +51,15 @@ async def google_login(redirect_uri: str = None, frontend_url: str = None):
 
 
 @router.get("/google/callback")
-async def google_callback(code: str, state: str = None, redirect_uri: str = None, db=Depends(get_database)):
+async def google_callback(code: str, state: str = None, db=Depends(get_database)):
     """
     Handles Google OAuth callback - called by FRONTEND to exchange code for tokens.
     This is an API endpoint, not a redirect target.
-    
-    - **code**: Authorization code from Google (required)
-    - **state**: Optional state parameter for CSRF protection
-    - **redirect_uri**: Optional redirect URI (must match the one used in authorization URL)
-    
-    Note: Authorization codes can only be used once. If you get an "invalid_grant" error,
-    the code has already been used - please initiate a new OAuth flow.
     """
-    logger.info(f"Google OAuth callback received: code={code[:20]}..., redirect_uri={redirect_uri}")
+    logger.info(f"Google OAuth callback received: code={code[:20]}...")
     
     try:
-        result = await google_oauth_service.handle_callback(code, redirect_uri=redirect_uri)
-        
-        logger.info(f"Successfully exchanged code for tokens for user: {result['user'].get('email', 'unknown')}")
+        result = await google_oauth_service.handle_callback(code)
         
         return {
             "access_token": result["access_token"],
@@ -80,23 +69,9 @@ async def google_callback(code: str, state: str = None, redirect_uri: str = None
             "user": result["user"]
         }
         
-    except HTTPException as e:
-        # If it's an invalid_grant error, provide a more helpful message
-        if "already been used" in str(e.detail) or "invalid_grant" in str(e.detail).lower():
-            logger.warning(f"Authorization code reuse attempt: {code[:20]}...")
-        raise
     except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Google OAuth callback error: {error_msg}")
-        
-        # Provide user-friendly error message for common issues
-        if "invalid_grant" in error_msg.lower():
-            raise HTTPException(
-                status_code=400,
-                detail="This authorization code has already been used or has expired. Please try signing in again."
-            )
-        
-        raise HTTPException(status_code=400, detail=f"Authentication failed: {error_msg}")
+        logger.error(f"Google OAuth callback error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/refresh", response_model=TokenResponse, summary="Refresh access token")
