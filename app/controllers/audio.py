@@ -93,7 +93,7 @@ async def generate_audio(
     # Use provided voice, user's stored preference, or default
     # Reload user to ensure we have the latest tts_voice from database
     await asyncio.to_thread(current_user.reload)
-    voice_to_use = request.voice or current_user.tts_voice or settings.TTS_VOICE
+    voice_to_use = current_user.tts_voice
     
     logger.info(f"Using voice '{voice_to_use}' for user {current_user.email} (request.voice={request.voice}, user.tts_voice={current_user.tts_voice}, default={settings.TTS_VOICE})")
     
