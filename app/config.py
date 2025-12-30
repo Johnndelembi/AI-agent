@@ -124,6 +124,13 @@ logger.info(f"Using model: {settings.CHATBOT_MODEL} with provider: {MODEL_PROVID
 # Google SMTP settings are configured via environment variables
 
 # ============================================================================
+# AUDIO OUTPUT DIRECTORY (for cleanup tasks)
+# ============================================================================
+# Audio output directory (used for temporary file cleanup)
+AUDIO_OUTPUT_DIR = Path("audio_output")
+AUDIO_OUTPUT_DIR.mkdir(exist_ok=True)
+
+# ============================================================================
 # DATABASE CONFIGURATION (MONGODB)
 # ============================================================================
 
@@ -193,6 +200,8 @@ __all__ = [
     'SENDER_EMAIL',
     'SENDER_PASSWORD',
     
+    # Audio (for cleanup tasks)
+    'AUDIO_OUTPUT_DIR',
     
     # Database
     'DATA_DIR',
