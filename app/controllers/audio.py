@@ -91,7 +91,11 @@ async def generate_audio(
         )
     
     # Use provided voice, user's stored preference, or default
+    # Reload user to ensure we have the latest tts_voice from database
+    await asyncio.to_thread(current_user.reload)
     voice_to_use = request.voice or current_user.tts_voice or settings.TTS_VOICE
+    
+    logger.info(f"Using voice '{voice_to_use}' for user {current_user.email} (request.voice={request.voice}, user.tts_voice={current_user.tts_voice}, default={settings.TTS_VOICE})")
     
     # Generate audio and save to GridFS
     file_id = await audio_service.generate_audio(
@@ -199,7 +203,10 @@ async def select_tts_voice(
     current_user.tts_voice = request.voice
     await asyncio.to_thread(current_user.save)
     
-    logger.info(f"TTS voice updated to: {request.voice} by user {current_user.email}")
+    # Reload user to ensure we have the latest data
+    await asyncio.to_thread(current_user.reload)
+    
+    logger.info(f"TTS voice updated to: {request.voice} by user {current_user.email} (saved to DB)")
     
     # Build voice info list
     available_voices_info = [
