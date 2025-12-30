@@ -5,6 +5,7 @@ from .audio_service import AudioService
 from .agent_service import ConversationalAgent
 from .database_service import connect_db, disconnect_db, is_connected, setup_database
 from .tts_service import generate_tts_audio, get_available_voices
+from .email_service import EmailService, email_service
 
 __all__ = [
     'ChatService',
@@ -16,4 +17,6 @@ __all__ = [
     'setup_database',
     'generate_tts_audio',
     'get_available_voices',
+    'EmailService',
+    'email_service',
 ]

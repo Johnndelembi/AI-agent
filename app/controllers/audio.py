@@ -14,7 +14,7 @@ from app.services.chat_service import ChatService
 from app.dependencies import get_audio_service, get_chat_service
 from app.utils.auth_utils import get_current_user
 from app.utils.error_handler import handle_http_errors
-from app.config import AVAILABLE_VOICES, VOICE_DESCRIPTIONS, settings, logger
+from app.config import settings, logger
 
 router = APIRouter(prefix="/audio", tags=["audio"])
 
@@ -94,20 +94,8 @@ async def generate_audio(
     # Reload user to ensure we have the latest tts_voice from database
     await asyncio.to_thread(current_user.reload)
     
-    # Get voice preference with validation
-    user_voice = current_user.tts_voice
-    voice_to_use = user_voice
-    
-    # Validate voice is in available voices (fallback to default if invalid)
-    if voice_to_use not in AVAILABLE_VOICES:
-        logger.warning(f"Invalid voice '{voice_to_use}' for user {current_user.email}, falling back to default '{settings.TTS_VOICE}'")
-        # Reset invalid voice preference in database
-        if user_voice and user_voice == voice_to_use:
-            current_user.tts_voice = None
-            await asyncio.to_thread(current_user.save)
-        voice_to_use = settings.TTS_VOICE
-    
-    logger.info(f"Using voice '{voice_to_use}' for user {current_user.email} (request.voice={request.voice}, user.tts_voice={user_voice}, default={settings.TTS_VOICE})")
+    # TTS is disabled - email service is the focus
+    logger.warning(f"TTS request from user {current_user.email} - TTS is disabled, email service is the focus")
     
     # Generate audio and save to GridFS
     file_id = await audio_service.generate_audio(
@@ -204,12 +192,11 @@ async def select_tts_voice(
     
     Requires: Valid JWT token in Authorization header.
     """
-    # Validate voice is in available voices
-    if request.voice not in AVAILABLE_VOICES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid voice '{request.voice}'. Available voices: {', '.join(AVAILABLE_VOICES)}"
-        )
+    # TTS is disabled - email service is the focus
+    raise HTTPException(
+        status_code=503,
+        detail="TTS functionality is disabled. Email service is the focus."
+    )
     
     # Update user's TTS voice preference in database
     current_user.tts_voice = request.voice
@@ -242,18 +229,9 @@ async def get_current_tts_voice(
     
     Requires: Valid JWT token in Authorization header.
     """
-    # Get user's stored voice preference, or fall back to default
-    user_voice = current_user.tts_voice or settings.TTS_VOICE
-    
-    # Build voice info list
-    available_voices_info = [
-        VoiceInfo(code=voice, description=VOICE_DESCRIPTIONS.get(voice, "Unknown voice"))
-        for voice in AVAILABLE_VOICES
-    ]
-    
-    return TTSVoiceResponse(
-        current_voice=user_voice,
-        current_voice_description=VOICE_DESCRIPTIONS.get(user_voice, "Unknown voice"),
-        available_voices=available_voices_info
+    # TTS is disabled - email service is the focus
+    raise HTTPException(
+        status_code=503,
+        detail="TTS functionality is disabled. Email service is the focus."
     )
 

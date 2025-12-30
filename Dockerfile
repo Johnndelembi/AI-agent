@@ -27,8 +27,6 @@ RUN python -m spacy download en_core_web_sm
 # Copy application code
 COPY . .
 
-# Pre-download Kokoro models (optional - can be skipped if not using TTS)
-RUN python -c "from app.utils.kokoro import download_kokoro_models; download_kokoro_models()" || echo "Kokoro model download skipped (optional)"
 
 # Create necessary directories
 RUN mkdir -p /app/audio_output /app/logs /app/data

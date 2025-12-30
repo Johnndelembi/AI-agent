@@ -12,6 +12,7 @@ from app.controllers.health import router as health_router
 from app.controllers.whatsapp import router as whatsapp_router
 from app.controllers.celery_monitor import router as celery_router
 from app.controllers.auth import router as auth_router
+from app.controllers.email import router as email_router
 from app.services.chat_service import ChatService
 from app.services.audio_service import AudioService
 
@@ -23,9 +24,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.chat_service = ChatService()
     app.state.audio_service = AudioService()
     
-    # Pre-warm TTS pipeline for faster first request
-    from app.services.tts_service import prewarm_tts_pipeline
-    await asyncio.to_thread(prewarm_tts_pipeline)
+    # TTS pre-warming removed - email service is the focus
 
     # Graceful shutdown handler
     stop_event = asyncio.Event()
@@ -67,6 +66,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(email_router)  # Email service - prominent feature
 app.include_router(chat_router)
 app.include_router(audio_router)
 app.include_router(whatsapp_router)

@@ -67,10 +67,7 @@ services:
       - SMTP_SERVER=${SMTP_SERVER:-smtp.gmail.com}
       - SMTP_PORT=${SMTP_PORT:-587}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
-      - APP_NAME=${APP_NAME:-Artemis AI Assistant}
-      # TTS Configuration
-      - TTS_VOICE=${TTS_VOICE:-af_heart}
-      - TTS_LANG_CODE=${TTS_LANG_CODE:-b}
+      - APP_NAME=${APP_NAME:-AI Agent}
       # LangSmith (optional)
       - LANGSMITH_TRACING=${LANGSMITH_TRACING:-false}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}

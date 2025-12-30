@@ -16,18 +16,12 @@ beautifulsoup4
 httpx  # Async HTTP client (replaced requests for non-blocking I/O)
 feedparser
 
-# Scientific computing (for TTS)
-numpy
-scipy
+# Scientific computing (removed - was only for kokoro TTS)
 
 # Image processing
 Pillow
 
-# TTS engines
-torch
-torchaudio
-soundfile
-kokoro
+# TTS engines (removed kokoro - using email service instead)
 pyttsx3
 
 # NLP

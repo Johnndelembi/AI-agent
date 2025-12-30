@@ -3,7 +3,7 @@ import asyncio
 import os
 from typing import Optional
 
-from app.config import TTS_AVAILABLE, logger
+from app.config import logger
 from app.services.gridfs_service import gridfs_service
 
 
@@ -31,8 +31,8 @@ class AudioService:
         Raises:
             RuntimeError: If TTS is not available
         """
-        if not TTS_AVAILABLE:
-            raise RuntimeError("TTS functionality is not available")
+        # TTS functionality is disabled - email service is the focus
+        raise RuntimeError("TTS functionality is not available. Email service is the focus.")
         
         # Direct generation in background thread for ALL text lengths
         # This is simpler than Celery and avoids the overhead of task queuing
@@ -109,7 +109,7 @@ class AudioService:
     
     async def is_available(self) -> bool:
         """Check if TTS service is available."""
-        return TTS_AVAILABLE
+        return False  # TTS is disabled - email service is the focus
     
     async def file_exists(self, file_id: str) -> bool:
         """

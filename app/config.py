@@ -58,18 +58,13 @@ class Settings:
     SENDER_EMAIL: str = os.getenv('SENDER_EMAIL')
     SENDER_PASSWORD: str = os.getenv('SENDER_PASSWORD')
     
-    # ============================================================================
-    # TTS CONFIGURATION
-    # ============================================================================
-    TTS_VOICE: str = os.getenv("TTS_VOICE", "af_heart")
-    TTS_LANG_CODE: str = os.getenv("TTS_LANG_CODE", "b")
     
     # ============================================================================
     # APPLICATION SETTINGS
     # ============================================================================
     APP_TITLE: str = "AI Agent API"
     APP_VERSION: str = "2.0.0"
-    APP_DESCRIPTION: str = "FastAPI-based conversational AI assistant with TTS support"
+    APP_DESCRIPTION: str = "FastAPI-based conversational AI assistant with email service"
     
     # CORS settings
     CORS_ORIGINS: list = ["*"]
@@ -123,53 +118,10 @@ os.environ["TAVILY_API_KEY"] = settings.TAVILY_API_KEY or ""
 logger.info(f"Using model: {settings.CHATBOT_MODEL} with provider: {MODEL_PROVIDER}")
 
 # ============================================================================
-# TTS (TEXT-TO-SPEECH) CONFIGURATION
+# EMAIL CONFIGURATION
 # ============================================================================
-
-# Suppress PyTorch warnings BEFORE importing torch
-os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
-os.environ['PYTORCH_DISABLE_WARNINGS'] = '1'
-os.environ['TORCH_WARN_ONCE'] = '0'
-os.environ['PYTORCH_WARN_ONCE'] = '0'
-os.environ['KOKORO_REPO_ID'] = 'hexgrad/Kokoro-82M'
-
-# Suppress all warnings at system level
-warnings.filterwarnings("ignore")
-
-# Check TTS availability
-TTS_AVAILABLE = False
-TTS_ENGINE = None
-
-try:
-    # Import torch with warnings suppressed
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        import torch
-        torch.set_warn_always(False)
-    
-    # Import kokoro
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from kokoro import KPipeline
-        import soundfile as sf
-    
-    TTS_AVAILABLE = True
-    TTS_ENGINE = "kokoro"
-    logger.info("Kokoro TTS libraries loaded successfully")
-except ImportError as e:
-    logger.warning(f"Kokoro TTS not available: {e}")
-    logger.warning("Audio generation will be disabled")
-except Exception as e:
-    logger.warning(f"Error loading Kokoro TTS: {e}. Audio generation will be disabled")
-
-# Kokoro cache directory
-HOME_DIR = Path.home()
-KOKORO_CACHE_DIR = HOME_DIR / ".cache" / "kokoro"
-KOKORO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-# Audio output directory
-AUDIO_OUTPUT_DIR = Path("audio_output")
-AUDIO_OUTPUT_DIR.mkdir(exist_ok=True)
+# Email configuration is handled in Settings class above
+# Google SMTP settings are configured via environment variables
 
 # ============================================================================
 # DATABASE CONFIGURATION (MONGODB)
@@ -196,8 +148,6 @@ CORS_ORIGINS = settings.CORS_ORIGINS
 CORS_ALLOW_CREDENTIALS = settings.CORS_ALLOW_CREDENTIALS
 CORS_ALLOW_METHODS = settings.CORS_ALLOW_METHODS
 CORS_ALLOW_HEADERS = settings.CORS_ALLOW_HEADERS
-TTS_VOICE = settings.TTS_VOICE
-TTS_LANG_CODE = settings.TTS_LANG_CODE
 CHATBOT_MODEL = settings.CHATBOT_MODEL
 CHATBOT_API_KEY = settings.CHATBOT_API_KEY
 TAVILY_API_KEY = settings.TAVILY_API_KEY
@@ -211,91 +161,6 @@ SENDER_PASSWORD = settings.SENDER_PASSWORD
 ENVIRONMENT = settings.ENVIRONMENT
 IS_DEV = settings.IS_DEV
 
-# ============================================================================
-# KOKORO TTS CONFIGURATION
-# ============================================================================
-
-def configure_kokoro_environment():
-    """Configure environment for Kokoro TTS to reduce warnings."""
-    if not TTS_AVAILABLE:
-        return
-    
-    try:
-        import torch
-        torch.set_warn_always(False)
-        
-        # Suppress specific warnings
-        warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.modules.rnn")
-        warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.utils.weight_norm")
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="torch")
-        warnings.filterwarnings("ignore", message=".*dropout option adds dropout.*")
-        warnings.filterwarnings("ignore", message=".*weight_norm is deprecated.*")
-        
-        # Configure PyTorch backends
-        if hasattr(torch.backends, 'cudnn'):
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-    except Exception as e:
-        logger.warning(f"Error configuring Kokoro environment: {e}")
-
-# Configure Kokoro environment on import
-configure_kokoro_environment()
-
-# ============================================================================
-# AVAILABLE VOICES
-# ============================================================================
-
-# Available Kokoro TTS voices from HuggingFace
-# American English (lang_code='a'): af_* (female), am_* (male)
-# British English (lang_code='b'): bf_* (female), bm_* (male)
-AVAILABLE_VOICES = [
-    # American English - Female
-    "af_heart", "af_alloy", "af_aoede", "af_bella", "af_jessica", 
-    "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",
-    # American English - Male
-    "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", 
-    "am_michael", "am_onyx", "am_puck", "am_santa",
-    # British English - Female
-    "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
-    # British English - Male
-    "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
-]
-
-# Voice descriptions for user-friendly display
-VOICE_DESCRIPTIONS = {
-    # American English - Female
-    "af_heart": "American Female - Heart (❤️) - Grade A",
-    "af_alloy": "American Female - Alloy - Grade C",
-    "af_aoede": "American Female - Aoede - Grade C+",
-    "af_bella": "American Female - Bella (🔥) - Grade A-",
-    "af_jessica": "American Female - Jessica - Grade D",
-    "af_kore": "American Female - Kore - Grade C+",
-    "af_nicole": "American Female - Nicole (🎧) - Grade B-",
-    "af_nova": "American Female - Nova - Grade C",
-    "af_river": "American Female - River - Grade D",
-    "af_sarah": "American Female - Sarah - Grade C+",
-    "af_sky": "American Female - Sky - Grade C-",
-    # American English - Male
-    "am_adam": "American Male - Adam - Grade F+",
-    "am_echo": "American Male - Echo - Grade D",
-    "am_eric": "American Male - Eric - Grade D",
-    "am_fenrir": "American Male - Fenrir - Grade C+",
-    "am_liam": "American Male - Liam - Grade D",
-    "am_michael": "American Male - Michael - Grade C+",
-    "am_onyx": "American Male - Onyx - Grade D",
-    "am_puck": "American Male - Puck - Grade C+",
-    "am_santa": "American Male - Santa - Grade D-",
-    # British English - Female
-    "bf_alice": "British Female - Alice - Grade D",
-    "bf_emma": "British Female - Emma - Grade B-",
-    "bf_isabella": "British Female - Isabella - Grade C",
-    "bf_lily": "British Female - Lily - Grade D",
-    # British English - Male
-    "bm_daniel": "British Male - Daniel - Grade D",
-    "bm_fable": "British Male - Fable - Grade C",
-    "bm_george": "British Male - George - Grade C",
-    "bm_lewis": "British Male - Lewis - Grade D+",
-}
 
 # ============================================================================
 # EXPORT ALL SETTINGS
@@ -328,16 +193,6 @@ __all__ = [
     'SENDER_EMAIL',
     'SENDER_PASSWORD',
     
-    # TTS
-    'TTS_AVAILABLE',
-    'TTS_ENGINE',
-    'TTS_VOICE',
-    'TTS_LANG_CODE',
-    'KOKORO_CACHE_DIR',
-    'AUDIO_OUTPUT_DIR',
-    'AVAILABLE_VOICES',
-    'VOICE_DESCRIPTIONS',
-    'configure_kokoro_environment',
     
     # Database
     'DATA_DIR',

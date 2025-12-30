@@ -5,7 +5,6 @@ The primary utilities are in error_handler.py for consistent error handling.
 The async_helpers.py module is available for advanced async patterns if needed.
 """
 
-from app.utils.kokoro import download_kokoro_models, test_kokoro_setup
 from app.utils.error_handler import (
     create_http_error,
     create_500_error,
@@ -27,9 +26,6 @@ from app.utils.error_handler import (
 # Import directly if needed: from app.utils.async_helpers import ExecutorManager
 
 __all__ = [
-    # Kokoro
-    'download_kokoro_models',
-    'test_kokoro_setup',
     # Error handling (primary utilities)
     "create_http_error",
     "create_500_error",
