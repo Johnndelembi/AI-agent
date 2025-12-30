@@ -112,7 +112,7 @@ async def generate_audio(
     # Generate audio and save to GridFS
     file_id = await audio_service.generate_audio(
         text=text_to_speak,
-        voice=voice_to_use
+        voice=current_user.tts_voice
     )
     
     # Get audio data to estimate duration
