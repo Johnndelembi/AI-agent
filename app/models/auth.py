@@ -31,10 +31,13 @@ class User(Document):
     
     # Authentication
     email = EmailField(required=True, unique=True)
-    password_hash = StringField(required=True)
+    password_hash = StringField(default=None)  # Optional for Google OAuth users
+    google_id = StringField(default=None)  # Google OAuth user ID (unique, sparse)
     
     # Profile
-    phone_number = StringField(required=True)
+    phone_number = StringField(default="")  # Optional, to be filled later
+    first_name = StringField(default="")
+    last_name = StringField(default="")
     fullname = StringField(default="")
     
     # Optional physical address
@@ -69,7 +72,9 @@ class User(Document):
             'is_employee',
             'created_at',
             # Explicit unique sparse for optional employee_id
-            {'fields': ['employee_id'], 'unique': True, 'sparse': True, 'name': 'uniq_employee_id'}
+            {'fields': ['employee_id'], 'unique': True, 'sparse': True, 'name': 'uniq_employee_id'},
+            # Explicit unique sparse for optional google_id
+            {'fields': ['google_id'], 'unique': True, 'sparse': True, 'name': 'uniq_google_id'}
         ]
     }
     
@@ -79,6 +84,8 @@ class User(Document):
     
     def verify_password(self, password: str) -> bool:
         """Verify password against hash."""
+        if not self.password_hash:
+            return False  # Google OAuth users don't have passwords
         return pwd_context.verify(password, self.password_hash)
     
     def update_last_login(self):
@@ -92,7 +99,9 @@ class User(Document):
             'id': str(self.id),
             'email': self.email,
             'phone_number': self.phone_number,
-            'fullname': self.fullname,
+            'first_name': self.first_name,
+            'last_name': self.last_name,
+            'fullname': self.fullname or f"{self.first_name} {self.last_name}".strip(),
             'address': {
                 'city': self.city
             } if self.city else None,
@@ -171,6 +180,11 @@ class User(Document):
     def get_by_employee_id(cls, employee_id: str) -> Optional['User']:
         """Get user by employee ID."""
         return cls.objects(employee_id=employee_id).first()
+    
+    @classmethod
+    def get_by_google_id(cls, google_id: str) -> Optional['User']:
+        """Get user by Google ID."""
+        return cls.objects(google_id=google_id).first()
 
 
 class OTPVerification(Document):

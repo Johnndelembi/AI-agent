@@ -1,189 +1,248 @@
 """
-OAuth service for Google authentication.
-Handles OAuth flow and user creation/authentication via Google.
+Google OAuth service for user authentication.
+Handles Google OAuth flow and user creation/updates.
 """
 
-import os
+import asyncio
+from typing import Dict, Any, Optional
 import httpx
-from typing import Dict, Any
+from authlib.integrations.httpx_client import AsyncOAuth2Client
+from fastapi import HTTPException, status
 
 from app.models.auth import User
 from app.services.auth_service import auth_service
-from app.config import logger
+from app.config import settings, logger
 
 
 class GoogleOAuthService:
     """Service for handling Google OAuth authentication."""
     
     def __init__(self):
-        self.client_id = os.getenv("GOOGLE_CLIENT_ID")
-        self.client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        self.redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+        self.client_id = settings.GOOGLE_CLIENT_ID
+        self.client_secret = settings.GOOGLE_CLIENT_SECRET
+        self.redirect_uri = settings.GOOGLE_REDIRECT_URI
         
         if not self.client_id or not self.client_secret:
-            logger.warning("Google OAuth not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env")
-        
-        # Google OAuth endpoints
-        self.authorization_endpoint = "https://accounts.google.com/o/oauth2/v2/auth"
-        self.token_endpoint = "https://oauth2.googleapis.com/token"
-        self.userinfo_endpoint = "https://www.googleapis.com/oauth2/v2/userinfo"
-        
-        # Scopes
-        self.scope = "openid email profile"
+            logger.warning("Google OAuth credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env")
     
     def is_configured(self) -> bool:
-        """Check if Google OAuth is properly configured."""
+        """Check if Google OAuth is configured."""
         return bool(self.client_id and self.client_secret)
     
-    def get_authorization_url(self, redirect_uri: str = None) -> str:
+    def get_authorization_url(self, state: Optional[str] = None, redirect_uri: Optional[str] = None) -> str:
         """
         Generate Google OAuth authorization URL.
         
         Args:
-            redirect_uri: OAuth redirect URI (defaults to configured redirect_uri)
+            state: Optional state parameter for CSRF protection
+            redirect_uri: Optional custom redirect URI (defaults to configured redirect_uri)
             
         Returns:
-            Authorization URL for Google OAuth
+            Authorization URL to redirect user to
         """
         if not self.is_configured():
-            raise ValueError("Google OAuth not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Google OAuth not configured. Please contact administrator."
+            )
         
-        redirect = redirect_uri or self.redirect_uri
+        # Use provided redirect_uri or fall back to configured one
+        redirect_uri_to_use = redirect_uri or self.redirect_uri
         
-        # Build authorization URL
-        params = {
-            "client_id": self.client_id,
-            "redirect_uri": redirect,
-            "response_type": "code",
-            "scope": self.scope,
-            "access_type": "offline",  # Request refresh token
-            "prompt": "consent",  # Force consent screen to get refresh token
-        }
+        # Google OAuth endpoints
+        authorization_base_url = "https://accounts.google.com/o/oauth2/v2/auth"
         
-        query_string = "&".join([f"{k}={v}" for k, v in params.items()])
-        auth_url = f"{self.authorization_endpoint}?{query_string}"
+        # Scopes needed to get user profile info
+        scopes = [
+            "openid",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile"
+        ]
         
-        logger.info(f"Generated Google OAuth URL with redirect_uri: {redirect}")
-        return auth_url
+        # Create OAuth client
+        oauth_client = AsyncOAuth2Client(
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            redirect_uri=redirect_uri_to_use
+        )
+        
+        # Generate authorization URL
+        authorization_url, _ = oauth_client.create_authorization_url(
+            authorization_base_url,
+            scope=scopes,
+            state=state
+        )
+        
+        return authorization_url
     
-    async def handle_callback(self, code: str, redirect_uri: str = None) -> Dict[str, Any]:
+    async def handle_callback(self, code: str, redirect_uri: Optional[str] = None) -> Dict[str, Any]:
         """
-        Handle OAuth callback - exchange code for tokens and get user info.
+        Handle Google OAuth callback and create/update user.
         
         Args:
-            code: Authorization code from Google
-            redirect_uri: OAuth redirect URI (must match the one used in authorization)
+            code: Authorization code from Google OAuth callback
+            redirect_uri: Optional custom redirect URI (must match the one used in authorization URL)
             
         Returns:
-            Dictionary with access_token, refresh_token, token_type, expires_in, and user
+            Dictionary with access_token, refresh_token, and user info
         """
         if not self.is_configured():
-            raise ValueError("Google OAuth not configured")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Google OAuth not configured. Please contact administrator."
+            )
         
-        redirect = redirect_uri or self.redirect_uri
+        # Use provided redirect_uri or fall back to configured one
+        # IMPORTANT: This must match the redirect_uri used in get_authorization_url()
+        redirect_uri_to_use = redirect_uri or self.redirect_uri
+        
+        # Google OAuth endpoints
+        token_url = "https://oauth2.googleapis.com/token"
+        userinfo_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+        
+        # Create OAuth client
+        oauth_client = AsyncOAuth2Client(
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            redirect_uri=redirect_uri_to_use
+        )
         
         try:
-            # Exchange code for tokens
-            async with httpx.AsyncClient() as client:
-                token_response = await client.post(
-                    self.token_endpoint,
-                    data={
-                        "code": code,
-                        "client_id": self.client_id,
-                        "client_secret": self.client_secret,
-                        "redirect_uri": redirect,
-                        "grant_type": "authorization_code",
-                    },
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+            # Exchange authorization code for tokens
+            # Note: Authorization codes can only be used once
+            try:
+                token_response = await oauth_client.fetch_token(
+                    token_url,
+                    code=code
                 )
-                token_response.raise_for_status()
-                token_data = token_response.json()
+            except Exception as token_error:
+                error_msg = str(token_error)
+                # Check if it's an invalid_grant error (code already used or expired)
+                if "invalid_grant" in error_msg.lower():
+                    logger.warning(f"Authorization code already used or expired: {code[:20]}...")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="This authorization code has already been used or has expired. Please try signing in again."
+                    )
+                # Re-raise other errors
+                raise
             
-            access_token = token_data.get("access_token")
-            refresh_token = token_data.get("refresh_token")
-            expires_in = token_data.get("expires_in", 3600)
-            
+            access_token = token_response.get('access_token')
             if not access_token:
-                raise ValueError("Failed to get access token from Google")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Failed to obtain access token from Google"
+                )
             
             # Get user info from Google
-            async with httpx.AsyncClient() as client:
-                userinfo_response = await client.get(
-                    self.userinfo_endpoint,
-                    headers={"Authorization": f"Bearer {access_token}"},
-                )
-                userinfo_response.raise_for_status()
-                userinfo = userinfo_response.json()
+            user_info = await self._get_user_info(access_token)
             
-            # Extract user information
-            google_email = userinfo.get("email")
-            google_name = userinfo.get("name", "")
-            google_picture = userinfo.get("picture", "")
-            
-            if not google_email:
-                raise ValueError("Email not provided by Google")
-            
-            # Find or create user
-            user = User.get_by_email(google_email)
-            
-            if not user:
-                # Create new user from Google OAuth
-                # Generate a random password since OAuth users don't need password
-                import secrets
-                random_password = secrets.token_urlsafe(32)
-                
-                # Extract first and last name if available
-                fullname_parts = google_name.split(" ", 1) if google_name else ["", ""]
-                first_name = fullname_parts[0] if len(fullname_parts) > 0 else ""
-                last_name = fullname_parts[1] if len(fullname_parts) > 1 else ""
-                
-                # Create user with minimal required fields
-                # Phone number is required, so we'll use a placeholder
-                user = User(
-                    email=google_email,
-                    fullname=google_name,
-                    phone_number=f"oauth_{google_email}",  # Placeholder, user can update later
-                    city="",
-                )
-                user.set_password(random_password)  # Set random password
-                user.is_verified = True  # Google email is already verified
-                user.save()
-                
-                logger.info(f"New user created via Google OAuth: {google_email}")
-            else:
-                # Update existing user info if needed
-                if google_name and not user.fullname:
-                    user.fullname = google_name
-                    user.save()
-                
-                logger.info(f"Existing user logged in via Google OAuth: {google_email}")
+            # Create or update user
+            user = await asyncio.to_thread(
+                self._create_or_update_user,
+                user_info
+            )
             
             # Generate JWT tokens
             tokens = auth_service.generate_tokens(user)
             
-            # Return response in expected format
+            # Update last login
+            await asyncio.to_thread(user.update_last_login)
+            
+            logger.info(f"User authenticated via Google OAuth: {user.email}")
+            
             return {
-                "access_token": tokens["access_token"],
-                "refresh_token": tokens["refresh_token"],
-                "token_type": tokens["token_type"],
-                "expires_in": expires_in,
-                "user": {
-                    "id": str(user.id),
-                    "email": user.email,
-                    "fullname": user.fullname,
-                    "is_verified": user.is_verified,
-                    "is_active": user.is_active,
-                }
+                **tokens,
+                "user": user.to_dict(),
+                "expires_in": 3600  # 1 hour in seconds
             }
             
-        except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error during Google OAuth callback: {e.response.text}")
-            raise ValueError(f"OAuth token exchange failed: {e.response.text}")
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.error(f"Error during Google OAuth callback: {str(e)}", exc_info=True)
-            raise ValueError(f"OAuth callback failed: {str(e)}")
+            logger.error(f"Google OAuth callback error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to authenticate with Google: {str(e)}"
+            )
+    
+    async def _get_user_info(self, access_token: str) -> Dict[str, Any]:
+        """
+        Fetch user information from Google API.
+        
+        Args:
+            access_token: Google OAuth access token
+            
+        Returns:
+            User information dictionary
+        """
+        userinfo_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(userinfo_url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+    
+    def _create_or_update_user(self, google_user_data: Dict[str, Any]) -> User:
+        """
+        Create or update user from Google profile data.
+        
+        Args:
+            google_user_data: User data from Google API
+            
+        Returns:
+            User object (created or updated)
+        """
+        google_id = google_user_data.get('id') or google_user_data.get('sub')
+        email = google_user_data.get('email')
+        first_name = google_user_data.get('given_name', '')
+        last_name = google_user_data.get('family_name', '')
+        
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email not provided by Google"
+            )
+        
+        if not google_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Google ID not provided"
+            )
+        
+        # Check if user exists by Google ID
+        user = User.get_by_google_id(google_id)
+        
+        if not user:
+            # Check if user exists by email (for migration)
+            user = User.get_by_email(email)
+        
+        if user:
+            # Update existing user
+            user.google_id = google_id
+            user.first_name = first_name
+            user.last_name = last_name
+            user.fullname = f"{first_name} {last_name}".strip() or user.fullname
+            user.is_verified = True  # Google-verified emails are always verified
+            user.save()
+        else:
+            # Create new user
+            user = User(
+                email=email,
+                google_id=google_id,
+                first_name=first_name,
+                last_name=last_name,
+                fullname=f"{first_name} {last_name}".strip(),
+                phone_number="",  # To be filled later
+                password_hash=None,  # No password for Google OAuth users
+                is_verified=True,  # Google-verified emails are always verified
+                is_active=True
+            )
+            user.save()
+        
+        return user
 
 
 # Singleton instance
 google_oauth_service = GoogleOAuthService()
-
