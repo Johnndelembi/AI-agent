@@ -22,7 +22,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --timeout=1000 --retries=5 -r requirements.txt
 
 # Install spaCy English language model
-RUN python -m spacy download en_core_web_sm
+# RUN python -m spacy download en_core_web_sm
 
 # Copy application code
 COPY . .
