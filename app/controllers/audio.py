@@ -93,9 +93,21 @@ async def generate_audio(
     # Use provided voice, user's stored preference, or default
     # Reload user to ensure we have the latest tts_voice from database
     await asyncio.to_thread(current_user.reload)
-    voice_to_use = current_user.tts_voice
     
-    logger.info(f"Using voice '{voice_to_use}' for user {current_user.email} (request.voice={request.voice}, user.tts_voice={current_user.tts_voice}, default={settings.TTS_VOICE})")
+    # Get voice preference with validation
+    user_voice = current_user.tts_voice
+    voice_to_use = request.voice or user_voice or settings.TTS_VOICE
+    
+    # Validate voice is in available voices (fallback to default if invalid)
+    if voice_to_use not in AVAILABLE_VOICES:
+        logger.warning(f"Invalid voice '{voice_to_use}' for user {current_user.email}, falling back to default '{settings.TTS_VOICE}'")
+        # Reset invalid voice preference in database
+        if user_voice and user_voice == voice_to_use:
+            current_user.tts_voice = None
+            await asyncio.to_thread(current_user.save)
+        voice_to_use = settings.TTS_VOICE
+    
+    logger.info(f"Using voice '{voice_to_use}' for user {current_user.email} (request.voice={request.voice}, user.tts_voice={user_voice}, default={settings.TTS_VOICE})")
     
     # Generate audio and save to GridFS
     file_id = await audio_service.generate_audio(

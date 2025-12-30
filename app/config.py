@@ -245,31 +245,56 @@ configure_kokoro_environment()
 # AVAILABLE VOICES
 # ============================================================================
 
+# Available Kokoro TTS voices from HuggingFace
+# American English (lang_code='a'): af_* (female), am_* (male)
+# British English (lang_code='b'): bf_* (female), bm_* (male)
 AVAILABLE_VOICES = [
-    "af_heart", "af_angry", "af_sad", "af_happy",
-    "am_heart", "am_angry", "am_sad", "am_happy",
-    "bf_heart", "bf_angry", "bf_sad", "bf_happy",
-    "bm_heart", "bm_angry", "bm_sad", "bm_happy"
+    # American English - Female
+    "af_heart", "af_alloy", "af_aoede", "af_bella", "af_jessica", 
+    "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",
+    # American English - Male
+    "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", 
+    "am_michael", "am_onyx", "am_puck", "am_santa",
+    # British English - Female
+    "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
+    # British English - Male
+    "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
 ]
 
 # Voice descriptions for user-friendly display
 VOICE_DESCRIPTIONS = {
-    "af_heart": "Female Voice A - Warm/Neutral",
-    "af_angry": "Female Voice A - Angry",
-    "af_sad": "Female Voice A - Sad",
-    "af_happy": "Female Voice A - Happy",
-    "am_heart": "Male Voice A - Warm/Neutral",
-    "am_angry": "Male Voice A - Angry",
-    "am_sad": "Male Voice A - Sad",
-    "am_happy": "Male Voice A - Happy",
-    "bf_heart": "Female Voice B - Warm/Neutral",
-    "bf_angry": "Female Voice B - Angry",
-    "bf_sad": "Female Voice B - Sad",
-    "bf_happy": "Female Voice B - Happy",
-    "bm_heart": "Male Voice B - Warm/Neutral",
-    "bm_angry": "Male Voice B - Angry",
-    "bm_sad": "Male Voice B - Sad",
-    "bm_happy": "Male Voice B - Happy",
+    # American English - Female
+    "af_heart": "American Female - Heart (❤️) - Grade A",
+    "af_alloy": "American Female - Alloy - Grade C",
+    "af_aoede": "American Female - Aoede - Grade C+",
+    "af_bella": "American Female - Bella (🔥) - Grade A-",
+    "af_jessica": "American Female - Jessica - Grade D",
+    "af_kore": "American Female - Kore - Grade C+",
+    "af_nicole": "American Female - Nicole (🎧) - Grade B-",
+    "af_nova": "American Female - Nova - Grade C",
+    "af_river": "American Female - River - Grade D",
+    "af_sarah": "American Female - Sarah - Grade C+",
+    "af_sky": "American Female - Sky - Grade C-",
+    # American English - Male
+    "am_adam": "American Male - Adam - Grade F+",
+    "am_echo": "American Male - Echo - Grade D",
+    "am_eric": "American Male - Eric - Grade D",
+    "am_fenrir": "American Male - Fenrir - Grade C+",
+    "am_liam": "American Male - Liam - Grade D",
+    "am_michael": "American Male - Michael - Grade C+",
+    "am_onyx": "American Male - Onyx - Grade D",
+    "am_puck": "American Male - Puck - Grade C+",
+    "am_santa": "American Male - Santa - Grade D-",
+    # British English - Female
+    "bf_alice": "British Female - Alice - Grade D",
+    "bf_emma": "British Female - Emma - Grade B-",
+    "bf_isabella": "British Female - Isabella - Grade C",
+    "bf_lily": "British Female - Lily - Grade D",
+    # British English - Male
+    "bm_daniel": "British Male - Daniel - Grade D",
+    "bm_fable": "British Male - Fable - Grade C",
+    "bm_george": "British Male - George - Grade C",
+    "bm_lewis": "British Male - Lewis - Grade D+",
 }
 
 # ============================================================================
