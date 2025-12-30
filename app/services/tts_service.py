@@ -229,7 +229,7 @@ def _generate_kokoro_audio(text: str, voice: str, lang_code: str, filepath: str)
     try:
         # Use provided voice/lang_code or defaults
         voice_to_use = voice
-        lang_to_use = lang_code
+        lang_to_use = lang_code or TTS_LANG_CODE
         
         # Get cached pipeline
         pipeline = get_tts_pipeline(lang_to_use)
