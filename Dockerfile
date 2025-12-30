@@ -36,14 +36,7 @@ RUN mkdir -p /app/audio_output /app/logs /app/data
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
-
-# Copy and set up entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-# Use entrypoint to fix permissions, then switch to app user
-# Keep as root so entrypoint can fix permissions, then su switches to app user
-ENTRYPOINT ["docker-entrypoint.sh"]
+USER app
 
 # Expose port for FastAPI
 EXPOSE 8000
