@@ -51,7 +51,7 @@ async def google_login(redirect_uri: str = None, frontend_url: str = None):
 
 
 @router.get("/google/callback")
-async def google_callback(code: str, state: str = None, db=Depends(get_database)):
+async def google_callback(code: str, redirect_uri: str = None, state: str = None, db=Depends(get_database)):
     """
     Handles Google OAuth callback - called by FRONTEND to exchange code for tokens.
     This is an API endpoint, not a redirect target.
@@ -59,7 +59,7 @@ async def google_callback(code: str, state: str = None, db=Depends(get_database)
     logger.info(f"Google OAuth callback received: code={code[:20]}...")
     
     try:
-        result = await google_oauth_service.handle_callback(code)
+        result = await google_oauth_service.handle_callback(code, redirect_uri=redirect_uri)
         
         return {
             "access_token": result["access_token"],
