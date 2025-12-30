@@ -44,6 +44,13 @@ class Settings:
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
     
     # ============================================================================
+    # OAUTH CONFIGURATION
+    # ============================================================================
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    GOOGLE_REDIRECT_URI: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+    
+    # ============================================================================
     # EMAIL CONFIGURATION (for Celery tasks)
     # ============================================================================
     SMTP_SERVER: str = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -194,6 +201,9 @@ TTS_LANG_CODE = settings.TTS_LANG_CODE
 CHATBOT_MODEL = settings.CHATBOT_MODEL
 CHATBOT_API_KEY = settings.CHATBOT_API_KEY
 TAVILY_API_KEY = settings.TAVILY_API_KEY
+GOOGLE_CLIENT_ID = settings.GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET = settings.GOOGLE_CLIENT_SECRET
+GOOGLE_REDIRECT_URI = settings.GOOGLE_REDIRECT_URI
 SMTP_SERVER = settings.SMTP_SERVER
 SMTP_PORT = settings.SMTP_PORT
 SENDER_EMAIL = settings.SENDER_EMAIL
@@ -281,6 +291,11 @@ __all__ = [
     'CHATBOT_API_KEY',
     'TAVILY_API_KEY',
     'MODEL_PROVIDER',
+    
+    # OAuth
+    'GOOGLE_CLIENT_ID',
+    'GOOGLE_CLIENT_SECRET',
+    'GOOGLE_REDIRECT_URI',
     
     # Email
     'SMTP_SERVER',
