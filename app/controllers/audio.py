@@ -96,7 +96,7 @@ async def generate_audio(
     
     # Get voice preference with validation
     user_voice = current_user.tts_voice
-    voice_to_use = request.voice or user_voice or settings.TTS_VOICE
+    voice_to_use = user_voice
     
     # Validate voice is in available voices (fallback to default if invalid)
     if voice_to_use not in AVAILABLE_VOICES:
