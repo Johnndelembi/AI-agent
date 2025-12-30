@@ -90,10 +90,13 @@ async def generate_audio(
             detail="Either text or message_id must be provided"
         )
     
+    # Use provided voice, user's stored preference, or default
+    voice_to_use = request.voice or current_user.tts_voice or settings.TTS_VOICE
+    
     # Generate audio and save to GridFS
     file_id = await audio_service.generate_audio(
         text=text_to_speak,
-        voice=request.voice
+        voice=voice_to_use
     )
     
     # Get audio data to estimate duration
@@ -192,12 +195,9 @@ async def select_tts_voice(
             detail=f"Invalid voice '{request.voice}'. Available voices: {', '.join(AVAILABLE_VOICES)}"
         )
     
-    # Update settings
-    settings.TTS_VOICE = request.voice
-    
-    # Also update module-level variable for backward compatibility
-    import app.config as config_module
-    config_module.TTS_VOICE = request.voice
+    # Update user's TTS voice preference in database
+    current_user.tts_voice = request.voice
+    await asyncio.to_thread(current_user.save)
     
     logger.info(f"TTS voice updated to: {request.voice} by user {current_user.email}")
     
@@ -223,6 +223,9 @@ async def get_current_tts_voice(
     
     Requires: Valid JWT token in Authorization header.
     """
+    # Get user's stored voice preference, or fall back to default
+    user_voice = current_user.tts_voice or settings.TTS_VOICE
+    
     # Build voice info list
     available_voices_info = [
         VoiceInfo(code=voice, description=VOICE_DESCRIPTIONS.get(voice, "Unknown voice"))
@@ -230,8 +233,8 @@ async def get_current_tts_voice(
     ]
     
     return TTSVoiceResponse(
-        current_voice=settings.TTS_VOICE,
-        current_voice_description=VOICE_DESCRIPTIONS.get(settings.TTS_VOICE, "Unknown voice"),
+        current_voice=user_voice,
+        current_voice_description=VOICE_DESCRIPTIONS.get(user_voice, "Unknown voice"),
         available_voices=available_voices_info
     )
 

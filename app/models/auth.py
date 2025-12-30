@@ -49,6 +49,9 @@ class User(Document):
     is_employee = BooleanField(default=False)  # Can access meal management system
     meal_preferences = DictField(default={})  # Store dietary preferences, allergies, etc.
     
+    # TTS Preferences
+    tts_voice = StringField(default=None)  # User's preferred TTS voice
+    
     # Account status
     is_active = BooleanField(default=True)
     is_verified = BooleanField(default=False)
