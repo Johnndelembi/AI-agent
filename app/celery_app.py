@@ -121,6 +121,14 @@ celery_app.conf.update(
 @worker_ready.connect
 def on_worker_ready(sender, **kwargs):
     """Called when worker is ready."""
+    # Initialize database connection and import models in worker process
+    from app.services.database_service import connect_db
+    from app.models.auth import User, OTPVerification, PasswordResetToken
+    from app.models.database import Employee, MealSelection, MealReminder, MealOptions, Conversation
+    
+    # Connect to database
+    connect_db()
+    
     logger.info("🚀 Celery worker is ready and waiting for tasks")
 
 

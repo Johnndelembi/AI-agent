@@ -13,6 +13,17 @@ from datetime import datetime, timedelta
 from app.celery_app import celery_app, cpu_intensive_task, io_bound_task
 from app.config import logger, AUDIO_OUTPUT_DIR
 
+# Import MongoEngine models to ensure they're registered in the worker process
+# This is necessary because Celery workers run in separate processes
+from app.models.auth import User, OTPVerification, PasswordResetToken
+from app.models.database import Employee, MealSelection, MealReminder, MealOptions, Conversation
+
+# Import engagement models if available
+try:
+    from app.models.engagement import UserEngagement, ReferralCode, Referral, UserPoints
+except ImportError:
+    pass  # Engagement models may not exist yet
+
 
 # ============================================================================
 # TTS TASKS (CPU-Intensive)
