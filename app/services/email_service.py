@@ -19,7 +19,9 @@ from app.config import (
     SENDER_EMAIL,
     SENDER_PASSWORD,
     logger,
-    settings
+    settings,
+    CHATBOT_MODEL,
+    MODEL_PROVIDER
 )
 
 
@@ -65,6 +67,87 @@ class EmailService:
         content = re.sub(r'^---+\s*$', '<hr style="border: 1px solid #ddd; margin: 20px 0;">', content, flags=re.MULTILINE)
         
         return content
+    
+    def _generate_ai_tip(
+        self,
+        profession: str = "",
+        use_case: str = "",
+        interests: List[str] = None,
+        goals: str = ""
+    ) -> str:
+        """
+        Generate a personalized AI tip based on user engagement data.
+        
+        Args:
+            profession: User's profession
+            use_case: How the user uses Artemis
+            interests: List of user interests
+            goals: User's goals
+            
+        Returns:
+            Generated tip string, or fallback tip if AI generation fails
+        """
+        if interests is None:
+            interests = []
+        
+        try:
+            from app.services.agent_service import init_chat_model
+            from langchain_core.messages import HumanMessage
+            
+            # Initialize LLM
+            llm = init_chat_model(CHATBOT_MODEL, model_provider=MODEL_PROVIDER)
+            
+            # Build context for personalization
+            context_parts = []
+            if profession:
+                context_parts.append(f"Profession: {profession}")
+            if use_case:
+                context_parts.append(f"Primary use case: {use_case}")
+            if interests:
+                context_parts.append(f"Interests: {', '.join(interests)}")
+            if goals:
+                context_parts.append(f"Goals: {goals}")
+            
+            context = "\n".join(context_parts) if context_parts else "General user"
+            
+            # Create prompt for personalized tip generation
+            prompt = f"""Generate a single, concise, and actionable tip for using Artemis AI assistant. 
+
+User Context:
+{context}
+
+Requirements:
+- The tip should be personalized to resonate with this user's profession, use case, interests, or goals
+- Keep it to one sentence (maximum 2 sentences)
+- Make it practical and actionable
+- Focus on how Artemis can help them specifically
+- Be encouraging and friendly
+- Do not include markdown formatting, just plain text
+
+Generate only the tip text, nothing else:"""
+            
+            # Generate tip using LLM
+            response = llm.invoke([HumanMessage(content=prompt)])
+            tip = response.content.strip()
+            
+            # Validate and clean the tip
+            if tip and len(tip) > 10:  # Basic validation
+                # Remove any quotes or extra formatting
+                tip = tip.strip('"\'`').strip()
+                logger.info(f"✅ AI-generated personalized tip: {tip[:50]}...")
+                return tip
+            else:
+                raise ValueError("Generated tip is too short or invalid")
+                
+        except Exception as e:
+            logger.warning(f"Failed to generate AI tip: {e}. Using fallback tip.")
+            # Fallback to generic but still relevant tip
+            if use_case:
+                return f"Try using Artemis for {use_case.lower()} - ask specific questions to get the best results!"
+            elif profession:
+                return f"As a {profession.lower()}, use Artemis to streamline your workflow with targeted questions."
+            else:
+                return "Use specific questions with Artemis to get more accurate and helpful responses tailored to your needs."
     
     def _create_email_template(self, subject: str, content: str, footer_text: Optional[str] = None) -> str:
         """Create a standardized HTML email template."""
@@ -369,7 +452,6 @@ class EmailService:
             <p><strong>Quick Questions:</strong></p>
             <ul>
                 <li>How do you use Artemis in your daily work?</li>
-                <li>What do you do for a living?</li>
                 <li>What are your main interests or goals?</li>
             </ul>
             <p style="text-align: center;">
@@ -405,6 +487,15 @@ class EmailService:
         profession = engagement_data.get('profession', '') if engagement_data else ''
         use_case = engagement_data.get('use_case', '') if engagement_data else ''
         interests = engagement_data.get('interests', []) if engagement_data else []
+        goals = engagement_data.get('goals', '') if engagement_data else ''
+        
+        # Generate AI-powered personalized tip
+        selected_tip = self._generate_ai_tip(
+            profession=profession,
+            use_case=use_case,
+            interests=interests if isinstance(interests, list) else [],
+            goals=goals
+        )
         
         # Build personalized tip content
         tip_content = "<p><strong>Today's Tip:</strong></p>"
@@ -414,17 +505,6 @@ class EmailService:
         else:
             tip_content += f"<p>Here's a valuable tip to help you get the most out of {self.app_name}:</p>"
         
-        # Generic tips (can be enhanced with AI-generated content later)
-        tips = [
-            "Use specific questions to get more accurate and helpful responses from Artemis.",
-            "Try breaking down complex tasks into smaller questions for better results.",
-            "Explore different conversation threads to organize your work by topic.",
-            "Use Artemis to brainstorm ideas, draft content, and solve problems faster.",
-            "Save time by asking Artemis to summarize long documents or conversations."
-        ]
-        
-        import random
-        selected_tip = random.choice(tips)
         tip_content += f"<p><em>{selected_tip}</em></p>"
         
         if use_case:
