@@ -334,6 +334,11 @@ class ReferralService:
                 if not voice_name:
                     raise ValueError("voice_name is required when redeeming a voice")
                 
+                # af_heart is free and available by default - cannot be redeemed
+                FREE_VOICE = "af_heart"
+                if voice_name == FREE_VOICE:
+                    raise ValueError(f"Voice {voice_name} is free and available by default. No redemption needed.")
+                
                 # Get voice grade and calculate cost
                 from app.config import VOICE_DESCRIPTIONS
                 

@@ -50,7 +50,7 @@ class User(Document):
     meal_preferences = DictField(default={})  # Store dietary preferences, allergies, etc.
     
     # TTS Preferences
-    tts_voice = StringField(default=None)  # User's preferred TTS voice
+    tts_voice = StringField(default="af_heart")  # User's preferred TTS voice (default: af_heart is free)
     
     # Account status
     is_active = BooleanField(default=True)

@@ -260,7 +260,73 @@ class EmailService:
     def is_configured(self) -> bool:
         return bool(self.sender_email and self.sender_password)
     
-    def send_email(self, to_email: str, subject: str, html_content: str) -> bool:
+    def _log_email(
+        self,
+        user_id: Optional[str],
+        email_type: str,
+        recipient_email: str,
+        subject: str,
+        status: str = 'sent',
+        metadata: Optional[Dict] = None
+    ):
+        """
+        Log email send to EmailLog.
+        
+        Args:
+            user_id: User ID (optional, will try to find by email if not provided)
+            email_type: Type of email
+            recipient_email: Recipient email address
+            subject: Email subject
+            status: Email status (sent, failed)
+            metadata: Optional metadata
+        """
+        try:
+            from app.models.email_log import EmailLog
+            
+            # If user_id not provided, try to find user by email
+            if not user_id:
+                user = User.get_by_email(recipient_email)
+                if user:
+                    user_id = str(user.id)
+                else:
+                    # If user not found, log with empty user_id
+                    user_id = ""
+            
+            EmailLog.create_log(
+                user_id=user_id,
+                email_type=email_type,
+                recipient_email=recipient_email,
+                subject=subject,
+                status=status,
+                metadata=metadata or {}
+            )
+        except Exception as e:
+            # Don't fail email send if logging fails
+            logger.warning(f"Failed to log email: {e}")
+    
+    def send_email(
+        self,
+        to_email: str,
+        subject: str,
+        html_content: str,
+        email_type: str = 'other',
+        user_id: Optional[str] = None,
+        metadata: Optional[Dict] = None
+    ) -> bool:
+        """
+        Send email and log it.
+        
+        Args:
+            to_email: Recipient email address
+            subject: Email subject
+            html_content: HTML email content
+            email_type: Type of email (for logging)
+            user_id: Optional user ID (for logging)
+            metadata: Optional metadata (for logging)
+            
+        Returns:
+            True if email sent successfully, False otherwise
+        """
         if not self.is_configured():
             logger.error("Email service not configured")
             return False
@@ -277,9 +343,34 @@ class EmailService:
                 server.send_message(msg)
             
             logger.info(f"Email sent to {to_email}")
+            
+            # Log successful email send
+            self._log_email(
+                user_id=user_id,
+                email_type=email_type,
+                recipient_email=to_email,
+                subject=subject,
+                status='sent',
+                metadata=metadata
+            )
+            
             return True
         except Exception as e:
             logger.error(f"Failed to send email: {e}")
+            
+            # Log failed email send
+            try:
+                self._log_email(
+                    user_id=user_id,
+                    email_type=email_type,
+                    recipient_email=to_email,
+                    subject=subject,
+                    status='failed',
+                    metadata=metadata
+                )
+            except:
+                pass
+            
             return False
     
     def send_verification_code(self, to_email: str, code: str, expiry_minutes: int = 1) -> bool:
@@ -325,7 +416,7 @@ class EmailService:
         """
         return self.send_email(to_email, subject, html)
     
-    def send_welcome_email(self, to_email: str, fullname: str = "") -> bool:
+    def send_welcome_email(self, to_email: str, fullname: str = "", user_id: Optional[str] = None) -> bool:
         greeting = f"Hello {fullname}!" if fullname else "Hello!"
         subject = f"Welcome to {self.app_name}!"
         html = f"""
@@ -342,7 +433,14 @@ class EmailService:
         </div>
         </body></html>
         """
-        return self.send_email(to_email, subject, html)
+        return self.send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html,
+            email_type='welcome',
+            user_id=user_id,
+            metadata={'fullname': fullname} if fullname else {}
+        )
 
 
 email_service = EmailService()

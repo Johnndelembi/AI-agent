@@ -14,6 +14,7 @@ from app.controllers.celery_monitor import router as celery_router
 from app.controllers.auth import router as auth_router
 from app.controllers.engagement import router as engagement_router
 from app.controllers.referral import router as referral_router
+from app.controllers.admin import router as admin_router
 from app.services.chat_service import ChatService
 from app.services.audio_service import AudioService
 
@@ -71,6 +72,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(engagement_router)  # Engagement and user data collection
 app.include_router(referral_router)  # Referral system and points
+app.include_router(admin_router)  # Admin dashboard endpoints
 app.include_router(chat_router)
 app.include_router(audio_router)
 app.include_router(whatsapp_router)

@@ -96,16 +96,21 @@ async def generate_audio(
     
     # Get voice preference with validation
     user_voice = current_user.tts_voice
+    # Default to af_heart (free voice) if user has no voice set
+    if not user_voice:
+        user_voice = "af_heart"
+        current_user.tts_voice = "af_heart"
+        await asyncio.to_thread(current_user.save)
+    
     voice_to_use = user_voice
     
-    # Validate voice is in available voices (fallback to default if invalid)
+    # Validate voice is in available voices (fallback to af_heart if invalid)
     if voice_to_use not in AVAILABLE_VOICES:
-        logger.warning(f"Invalid voice '{voice_to_use}' for user {current_user.email}, falling back to default '{settings.TTS_VOICE}'")
-        # Reset invalid voice preference in database
-        if user_voice and user_voice == voice_to_use:
-            current_user.tts_voice = None
-            await asyncio.to_thread(current_user.save)
-        voice_to_use = settings.TTS_VOICE
+        logger.warning(f"Invalid voice '{voice_to_use}' for user {current_user.email}, falling back to af_heart")
+        # Reset invalid voice preference in database to af_heart
+        current_user.tts_voice = "af_heart"
+        await asyncio.to_thread(current_user.save)
+        voice_to_use = "af_heart"
     
     logger.info(f"Using voice '{voice_to_use}' for user {current_user.email} (request.voice={request.voice}, user.tts_voice={user_voice}, default={settings.TTS_VOICE})")
     
@@ -200,15 +205,37 @@ async def select_tts_voice(
     """
     Select the TTS voice to use for audio generation.
     
-    - **voice**: Voice to use for TTS (must be from available voices)
+    - **voice**: Voice to use for TTS (must be af_heart or a redeemed voice)
     
     Requires: Valid JWT token in Authorization header.
     """
-    # Validate voice is in available voices
+    FREE_VOICE = "af_heart"
+    user_id = str(current_user.id)
+    
+    # Validate voice is in available voices list first
     if request.voice not in AVAILABLE_VOICES:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid voice '{request.voice}'. Available voices: {', '.join(AVAILABLE_VOICES)}"
+            detail=f"Invalid voice '{request.voice}'. Voice does not exist."
+        )
+    
+    # Get user's redeemed voices (refresh from database to get latest)
+    from app.models.engagement import UserPoints
+    user_points = await asyncio.to_thread(
+        lambda: UserPoints.objects(user_id=user_id).first()
+    )
+    
+    redeemed_voices = []
+    if user_points:
+        # Reload to ensure we have the latest redeemed voices
+        await asyncio.to_thread(user_points.reload)
+        redeemed_voices = [r.replace('voice:', '') for r in user_points.rewards_redeemed if r.startswith('voice:')]
+    
+    # Check if voice is available (af_heart is always available, or must be redeemed)
+    if request.voice != FREE_VOICE and request.voice not in redeemed_voices:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Voice '{request.voice}' is not available. You must redeem it first using points, or use '{FREE_VOICE}' which is free."
         )
     
     # Update user's TTS voice preference in database
@@ -220,10 +247,19 @@ async def select_tts_voice(
     
     logger.info(f"TTS voice updated to: {request.voice} by user {current_user.email} (saved to DB)")
     
+    # Refresh redeemed voices list to ensure it's up to date
+    if user_points:
+        await asyncio.to_thread(user_points.reload)
+        redeemed_voices = [r.replace('voice:', '') for r in user_points.rewards_redeemed if r.startswith('voice:')]
+    
+    # Build available voices list (af_heart + redeemed voices)
+    available_voices_list = [FREE_VOICE]  # Always include af_heart
+    available_voices_list.extend([v for v in redeemed_voices if v != FREE_VOICE])  # Add redeemed voices
+    
     # Build voice info list
     available_voices_info = [
         VoiceInfo(code=voice, description=VOICE_DESCRIPTIONS.get(voice, "Unknown voice"))
-        for voice in AVAILABLE_VOICES
+        for voice in available_voices_list
     ]
     
     return TTSVoiceResponse(
@@ -240,15 +276,38 @@ async def get_current_tts_voice(
     """
     Get the currently selected TTS voice and list of available voices with descriptions.
     
+    Returns only voices available to the user:
+    - af_heart (free, always available)
+    - Voices that have been redeemed by the user
+    
     Requires: Valid JWT token in Authorization header.
     """
-    # Get user's stored voice preference, or fall back to default
-    user_voice = current_user.tts_voice or settings.TTS_VOICE
+    FREE_VOICE = "af_heart"
+    user_id = str(current_user.id)
+    
+    # Get user's stored voice preference, or fall back to af_heart
+    user_voice = current_user.tts_voice or FREE_VOICE
+    
+    # Get user's redeemed voices (refresh from database to get latest)
+    from app.models.engagement import UserPoints
+    user_points = await asyncio.to_thread(
+        lambda: UserPoints.objects(user_id=user_id).first()
+    )
+    
+    redeemed_voices = []
+    if user_points:
+        # Reload to ensure we have the latest redeemed voices (in case they just redeemed)
+        await asyncio.to_thread(user_points.reload)
+        redeemed_voices = [r.replace('voice:', '') for r in user_points.rewards_redeemed if r.startswith('voice:')]
+    
+    # Build available voices list (af_heart + redeemed voices)
+    available_voices_list = [FREE_VOICE]  # Always include af_heart
+    available_voices_list.extend([v for v in redeemed_voices if v != FREE_VOICE])  # Add redeemed voices
     
     # Build voice info list
     available_voices_info = [
         VoiceInfo(code=voice, description=VOICE_DESCRIPTIONS.get(voice, "Unknown voice"))
-        for voice in AVAILABLE_VOICES
+        for voice in available_voices_list
     ]
     
     return TTSVoiceResponse(
