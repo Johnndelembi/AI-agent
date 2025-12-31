@@ -66,3 +66,4 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+test-brevo-email.py
