@@ -285,41 +285,10 @@ async def get_rewards(
         # Get already redeemed voices
         redeemed_voices = [r.replace('voice:', '') for r in points_data.get("rewards_redeemed", []) if r.startswith('voice:')]
         
-        # Free default voice
-        FREE_VOICE = "af_heart"
-        
-        # Organize voices by grade
+        # Organize voices by grade - show ALL voices so users can see what's available to redeem
         rewards = []
         
-        # Always include af_heart as free (even if not redeemed, it's available by default)
-        if FREE_VOICE in AVAILABLE_VOICES:
-            voice_desc = VOICE_DESCRIPTIONS.get(FREE_VOICE, "")
-            grade_match = re.search(r'Grade\s+([A-F][+-]?)', voice_desc)
-            if grade_match:
-                grade = grade_match.group(1)
-                voice_display = voice_desc.split(' - Grade')[0].strip()
-                
-                rewards.append({
-                    "type": "voice",
-                    "voice_name": FREE_VOICE,
-                    "name": voice_display,
-                    "description": f"Grade {grade} TTS Voice (Free)",
-                    "grade": grade,
-                    "points_cost": 0,
-                    "available": True,
-                    "redeemed": True  # Consider it "redeemed" since it's free
-                })
-        
-        # Add only redeemed voices (excluding af_heart since it's already added)
         for voice_name in AVAILABLE_VOICES:
-            # Skip af_heart as it's already added above
-            if voice_name == FREE_VOICE:
-                continue
-            
-            # Only show voices that have been redeemed
-            if voice_name not in redeemed_voices:
-                continue
-            
             voice_desc = VOICE_DESCRIPTIONS.get(voice_name, "")
             
             # Extract grade from description
@@ -329,6 +298,13 @@ async def get_rewards(
             
             grade = grade_match.group(1)
             points_cost = VOICE_GRADE_POINTS.get(grade, 0)
+            
+            # Skip voices with no point cost (these shouldn't be in the rewards list)
+            if points_cost == 0:
+                continue
+            
+            # Check if already redeemed
+            is_redeemed = voice_name in redeemed_voices
             
             # Extract voice description without grade
             voice_display = voice_desc.split(' - Grade')[0].strip()
@@ -340,8 +316,8 @@ async def get_rewards(
                 "description": f"Grade {grade} TTS Voice",
                 "grade": grade,
                 "points_cost": points_cost,
-                "available": True,
-                "redeemed": True
+                "available": points_balance >= points_cost and not is_redeemed,
+                "redeemed": is_redeemed
             })
         
         # Sort by grade (A to F) and then by points cost (descending)
