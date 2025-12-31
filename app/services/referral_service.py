@@ -108,6 +108,20 @@ class ReferralService:
                 # Generate new code if doesn't exist
                 return self.generate_referral_code(user_id)
         except Exception as e:
+            # Check if it's an index error - if so, try to handle gracefully
+            error_str = str(e)
+            if 'IndexKeySpecsConflict' in error_str or 'index' in error_str.lower():
+                logger.warning(f"Index conflict when getting referral code for user {user_id}: {e}")
+                # Try to get existing code even with index conflict
+                try:
+                    # Query without relying on index
+                    from mongoengine.connection import get_db
+                    db = get_db()
+                    ref_code_doc = db['referral_codes'].find_one({'user_id': user_id})
+                    if ref_code_doc:
+                        return ref_code_doc.get('code')
+                except Exception:
+                    pass
             logger.error(f"Error getting referral code for user {user_id}: {e}")
             return None
     
@@ -289,10 +303,12 @@ class ReferralService:
             
         except Exception as e:
             logger.error(f"Error getting points for user {user_id}: {e}")
+            # Return proper structure even on error
             return {
                 'user_id': user_id,
                 'total_points': 0,
-                'error': str(e)
+                'rewards_redeemed': [],
+                'points_history_count': 0
             }
     
     def redeem_points(self, user_id: str, reward_type: str, voice_name: Optional[str] = None) -> Dict[str, Any]:
@@ -398,27 +414,41 @@ class ReferralService:
         """
         try:
             # Get referral code
-            referral_code = ReferralCode.objects(user_id=user_id).first()
-            code = referral_code.code if referral_code else None
+            referral_code = None
+            try:
+                ref_code_obj = ReferralCode.objects(user_id=user_id).first()
+                code = ref_code_obj.code if ref_code_obj else None
+            except Exception as e:
+                logger.warning(f"Error getting referral code for user {user_id}: {e}")
+                code = None
             
             # Get referrals
-            referrals = Referral.objects(referrer_id=user_id)
-            total_referrals = referrals.count()
-            successful_referrals = referrals.filter(points_awarded=True).count()
+            total_referrals = 0
+            successful_referrals = 0
+            try:
+                referrals = Referral.objects(referrer_id=user_id)
+                total_referrals = referrals.count()
+                successful_referrals = referrals.filter(points_awarded=True).count()
+            except Exception as e:
+                logger.warning(f"Error getting referrals for user {user_id}: {e}")
             
             # Get points
-            user_points = UserPoints.objects(user_id=user_id).first()
-            total_points = user_points.total_points if user_points else 0
-            
-            # Calculate points from referrals
+            total_points = 0
             points_from_referrals = 0
-            if user_points:
-                for entry in user_points.points_history:
-                    if hasattr(entry, 'source') and entry.source == 'referral':
-                        if hasattr(entry, 'amount'):
-                            points_from_referrals += entry.amount
-                    elif isinstance(entry, dict) and entry.get('source') == 'referral':
-                        points_from_referrals += entry.get('amount', 0)
+            try:
+                user_points = UserPoints.objects(user_id=user_id).first()
+                total_points = user_points.total_points if user_points else 0
+                
+                # Calculate points from referrals
+                if user_points:
+                    for entry in user_points.points_history:
+                        if hasattr(entry, 'source') and entry.source == 'referral':
+                            if hasattr(entry, 'amount'):
+                                points_from_referrals += entry.amount
+                        elif isinstance(entry, dict) and entry.get('source') == 'referral':
+                            points_from_referrals += entry.get('amount', 0)
+            except Exception as e:
+                logger.warning(f"Error getting points for user {user_id}: {e}")
             
             return {
                 'user_id': user_id,
@@ -431,9 +461,14 @@ class ReferralService:
             
         except Exception as e:
             logger.error(f"Error getting referral stats for user {user_id}: {e}")
+            # Return proper structure even on error
             return {
                 'user_id': user_id,
-                'error': str(e)
+                'referral_code': None,
+                'total_referrals': 0,
+                'successful_referrals': 0,
+                'total_points': 0,
+                'points_from_referrals': 0
             }
 
 

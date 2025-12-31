@@ -152,11 +152,38 @@ class EngagementService:
             }
             
         except Exception as e:
+            # Check if it's an index error - handle gracefully
+            error_str = str(e)
+            if 'IndexKeySpecsConflict' in error_str or 'index' in error_str.lower():
+                logger.warning(f"Index conflict when getting engagement stats for user {user_id}: {e}")
+                # Try to get data even with index conflict
+                try:
+                    from mongoengine.connection import get_db
+                    db = get_db()
+                    engagement_doc = db['user_engagements'].find_one({'user_id': user_id})
+                    if engagement_doc:
+                        return {
+                            'user_id': user_id,
+                            'has_engagement_data': True,
+                            'info_collected': engagement_doc.get('info_collected', False),
+                            'use_case': engagement_doc.get('use_case'),
+                            'profession': engagement_doc.get('profession'),
+                            'interests': engagement_doc.get('interests', []),
+                            'goals': engagement_doc.get('goals'),
+                            'email_opt_in': engagement_doc.get('email_opt_in', True),
+                            'email_frequency': engagement_doc.get('email_frequency', 'daily'),
+                            'created_at': engagement_doc.get('created_at').isoformat() if engagement_doc.get('created_at') else None,
+                            'updated_at': engagement_doc.get('updated_at').isoformat() if engagement_doc.get('updated_at') else None
+                        }
+                except Exception:
+                    pass
+            
             logger.error(f"Error getting engagement stats for user {user_id}: {e}")
+            # Return proper structure even on error
             return {
                 'user_id': user_id,
                 'has_engagement_data': False,
-                'error': str(e)
+                'info_collected': False
             }
 
 

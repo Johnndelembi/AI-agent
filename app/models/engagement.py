@@ -38,13 +38,12 @@ class UserEngagement(Document):
     meta = {
         'collection': 'user_engagements',
         'indexes': [
-            'user_id',
             'created_at',
-            {'fields': ['user_id'], 'unique': True}
+            {'fields': ['user_id'], 'unique': True, 'name': 'uniq_user_engagement_user_id'}
         ]
     }
     
-    user_id = StringField(required=True, unique=True)
+    user_id = StringField(required=True)
     
     # Engagement form data
     use_case = StringField(max_length=500)  # How they use Artemis
@@ -107,16 +106,14 @@ class ReferralCode(Document):
     meta = {
         'collection': 'referral_codes',
         'indexes': [
-            'user_id',
-            'code',
             'created_at',
-            {'fields': ['user_id'], 'unique': True},
-            {'fields': ['code'], 'unique': True}
+            {'fields': ['user_id'], 'unique': True, 'name': 'uniq_referral_code_user_id'},
+            {'fields': ['code'], 'unique': True, 'name': 'uniq_referral_code_code'}
         ]
     }
     
-    user_id = StringField(required=True, unique=True)
-    code = StringField(required=True, unique=True, max_length=50)  # e.g., "ARTEMIS-ABC123"
+    user_id = StringField(required=True)
+    code = StringField(required=True, max_length=50)  # e.g., "ARTEMIS-ABC123"
     is_active = BooleanField(default=True)
     usage_count = IntField(default=0)
     
@@ -152,16 +149,15 @@ class Referral(Document):
         'collection': 'referrals',
         'indexes': [
             'referrer_id',
-            'referred_user_id',
             'referral_code',
             'points_awarded',
             'created_at',
-            {'fields': ['referred_user_id'], 'unique': True}  # One referral per user
+            {'fields': ['referred_user_id'], 'unique': True, 'name': 'uniq_referral_referred_user_id'}  # One referral per user
         ]
     }
     
     referrer_id = StringField(required=True)  # User who made the referral
-    referred_user_id = StringField(required=True, unique=True)  # User who was referred
+    referred_user_id = StringField(required=True)  # User who was referred
     referral_code = StringField(required=True)  # Code used for referral
     
     # Engagement tracking
@@ -211,14 +207,13 @@ class UserPoints(Document):
     meta = {
         'collection': 'user_points',
         'indexes': [
-            'user_id',
             'total_points',
             'created_at',
-            {'fields': ['user_id'], 'unique': True}
+            {'fields': ['user_id'], 'unique': True, 'name': 'uniq_user_points_user_id'}
         ]
     }
     
-    user_id = StringField(required=True, unique=True)
+    user_id = StringField(required=True)
     total_points = IntField(default=0)
     points_history = ListField(EmbeddedDocumentField(PointsHistoryEntry), default=list)
     
