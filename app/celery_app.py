@@ -70,6 +70,7 @@ celery_app.conf.update(
         "app.celery_tasks.scrape_webpage_task": {"queue": "io_bound"},
         "app.celery_tasks.process_document_task": {"queue": "cpu_intensive"},
         "app.celery_tasks.generate_response_task": {"queue": "cpu_intensive"},
+        "app.celery_tasks.check_referral_milestones_task": {"queue": "io_bound"},
     },
     
     # Beat scheduler (for periodic tasks)
@@ -80,6 +81,10 @@ celery_app.conf.update(
         },
         "health-check": {
             "task": "app.celery_tasks.health_check_task",
+            "schedule": 86400.0,  # Every day
+        },
+        "check-referral-milestones": {
+            "task": "app.celery_tasks.check_referral_milestones_task",
             "schedule": 86400.0,  # Every day
         },
     },

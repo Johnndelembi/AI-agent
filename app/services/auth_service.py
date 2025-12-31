@@ -128,6 +128,7 @@ class AuthService:
         phone_number: str,
         fullname: str = "",
         city: str = "",
+        referral_code: Optional[str] = None,
         **kwargs
     ) -> User:
         """Register a new user."""
@@ -163,6 +164,19 @@ class AuthService:
         )
         user.set_password(password)
         user.save()
+        
+        # Track referral if referral code provided
+        if referral_code:
+            try:
+                from app.services.referral_service import referral_service
+                referral_service.track_referral(
+                    referral_code=referral_code,
+                    referred_user_id=str(user.id)
+                )
+                logger.info(f"Referral tracked for new user {email} with code {referral_code}")
+            except Exception as e:
+                # Don't fail registration if referral tracking fails
+                logger.warning(f"Failed to track referral for {email}: {e}")
         
         logger.info(f"New user registered: {email}")
         return user

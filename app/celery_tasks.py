@@ -351,6 +351,77 @@ def health_check_task() -> Dict[str, Any]:
 
 
 # ============================================================================
+# REFERRAL MILESTONE CHECKING TASKS (I/O-Bound)
+# ============================================================================
+
+@io_bound_task(
+    name="app.celery_tasks.check_referral_milestones_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2, "countdown": 60},
+)
+def check_referral_milestones_task(self) -> Dict[str, Any]:
+    """
+    Check referral milestones and award points when referred users reach engagement goals.
+    
+    This task checks if referred users have reached milestones (e.g., 5+ chats)
+    and awards points to referrers. This involves database writes.
+    
+    Returns:
+        Dict with milestone check statistics
+    """
+    try:
+        from app.services.referral_service import referral_service
+        from app.models.engagement import Referral
+        
+        logger.info("🔍 Celery: Starting referral milestone check")
+        
+        # Get all referrals that haven't been awarded points yet
+        pending_referrals = Referral.objects(points_awarded=False)
+        
+        processed_count = 0
+        points_awarded_count = 0
+        total_points = 0
+        
+        for referral in pending_referrals:
+            try:
+                # Check milestones for this referred user
+                milestone_status = referral_service.check_engagement_milestones(
+                    referral.referred_user_id
+                )
+                
+                # If milestone reached, award points
+                if milestone_status.get('milestones_reached'):
+                    for milestone in milestone_status['milestones_reached']:
+                        result = referral_service.award_referral_points(
+                            referrer_id=referral.referrer_id,
+                            milestone=milestone
+                        )
+                        points_awarded_count += result.get('points_awarded', 0)
+                        total_points += result.get('points_awarded', 0)
+                        processed_count += 1
+                        
+            except Exception as e:
+                logger.error(f"Error processing referral {referral.id}: {e}")
+                continue
+        
+        logger.info(
+            f"✅ Celery: Referral milestone check completed: "
+            f"{processed_count} referrals processed, {points_awarded_count} points awarded"
+        )
+        
+        return {
+            "status": "success",
+            "referrals_processed": processed_count,
+            "points_awarded_count": points_awarded_count,
+            "total_points": total_points
+        }
+    except Exception as e:
+        logger.error(f"❌ Celery: Referral milestone check failed: {e}")
+        raise
+
+
+# ============================================================================
 # DOCUMENT PROCESSING TASKS (CPU-Intensive)
 # ============================================================================
 

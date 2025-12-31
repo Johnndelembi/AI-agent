@@ -75,13 +75,14 @@ class GoogleOAuthService:
         
         return authorization_url
     
-    async def handle_callback(self, code: str, redirect_uri: Optional[str] = None) -> Dict[str, Any]:
+    async def handle_callback(self, code: str, redirect_uri: Optional[str] = None, referral_code: Optional[str] = None) -> Dict[str, Any]:
         """
         Handle Google OAuth callback and create/update user.
         
         Args:
             code: Authorization code from Google OAuth callback
             redirect_uri: Optional custom redirect URI (must match the one used in authorization URL)
+            referral_code: Optional referral code for tracking referrals
             
         Returns:
             Dictionary with access_token, refresh_token, and user info
@@ -140,7 +141,8 @@ class GoogleOAuthService:
             # Create or update user
             user = await asyncio.to_thread(
                 self._create_or_update_user,
-                user_info
+                user_info,
+                referral_code
             )
             
             # Generate JWT tokens
@@ -184,12 +186,13 @@ class GoogleOAuthService:
             response.raise_for_status()
             return response.json()
     
-    def _create_or_update_user(self, google_user_data: Dict[str, Any]) -> User:
+    def _create_or_update_user(self, google_user_data: Dict[str, Any], referral_code: Optional[str] = None) -> User:
         """
         Create or update user from Google profile data.
         
         Args:
             google_user_data: User data from Google API
+            referral_code: Optional referral code for tracking referrals
             
         Returns:
             User object (created or updated)
@@ -240,6 +243,19 @@ class GoogleOAuthService:
                 is_active=True
             )
             user.save()
+            
+            # Track referral if referral code provided (only for new users)
+            if referral_code:
+                try:
+                    from app.services.referral_service import referral_service
+                    referral_service.track_referral(
+                        referral_code=referral_code,
+                        referred_user_id=str(user.id)
+                    )
+                    logger.info(f"Referral tracked for new OAuth user {email} with code {referral_code}")
+                except Exception as e:
+                    # Don't fail registration if referral tracking fails
+                    logger.warning(f"Failed to track referral for {email}: {e}")
         
         return user
 
