@@ -36,7 +36,7 @@ class EmailService:
         self.sender_email = SENDER_EMAIL or os.getenv("SENDER_EMAIL")
         self.sender_password = SENDER_PASSWORD or os.getenv("SENDER_PASSWORD")
         self.app_name = os.getenv("APP_NAME", "Artemis - AI Assistant")
-        self.frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        self.frontend_url = os.getenv("FRONTEND_URL", "https://artemis.ares.codes")
         
         if not self.sender_email or not self.sender_password:
             logger.warning(
