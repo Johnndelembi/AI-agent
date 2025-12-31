@@ -43,8 +43,6 @@ class EngagementStatsResponse(BaseModel):
     profession: Optional[str] = None
     interests: Optional[List[str]] = None
     goals: Optional[str] = None
-    email_opt_in: Optional[bool] = None
-    email_frequency: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     error: Optional[str] = None
@@ -93,7 +91,7 @@ async def submit_engagement_info(
         )
 
 
-@router.get("/preferences", summary="Get user email preferences")
+@router.get("/preferences", summary="Get user email preferences (Deprecated)")
 @handle_http_errors("Error getting email preferences")
 async def get_email_preferences(
     current_user: User = Depends(get_current_active_user)
@@ -101,32 +99,19 @@ async def get_email_preferences(
     """
     Get current user's email preferences.
     
+    Note: Email preferences have been removed from the engagement form.
+    This endpoint is kept for API compatibility but returns a deprecation message.
+    
     Requires: Valid JWT token in Authorization header.
     """
-    try:
-        user_id = str(current_user.id)
-        
-        stats = await asyncio.to_thread(
-            engagement_service.get_user_engagement_stats,
-            user_id=user_id
-        )
-        
-        return {
-            "success": True,
-            "data": {
-                "email_opt_in": stats.get("email_opt_in", True),
-                "email_frequency": stats.get("email_frequency", "daily")
-            }
-        }
-    except Exception as e:
-        logger.error(f"Error getting email preferences: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get email preferences: {str(e)}"
-        )
+    return {
+        "success": True,
+        "message": "Email preferences have been removed from the engagement system",
+        "data": {}
+    }
 
 
-@router.put("/preferences", summary="Update user email preferences")
+@router.put("/preferences", summary="Update user email preferences (Deprecated)")
 @handle_http_errors("Error updating email preferences")
 async def update_email_preferences(
     request: UpdateEmailPreferencesRequest,
@@ -135,39 +120,25 @@ async def update_email_preferences(
     """
     Update user email preferences.
     
-    - **email_opt_in**: Whether to receive emails
-    - **email_frequency**: Email frequency (daily, weekly, biweekly, monthly)
+    Note: Email preferences have been removed from the engagement form.
+    This endpoint is kept for API compatibility but no longer performs any action.
     
     Requires: Valid JWT token in Authorization header.
     """
-    try:
-        user_id = str(current_user.id)
-        
-        result = await asyncio.to_thread(
-            engagement_service.update_email_preferences,
-            user_id=user_id,
-            email_opt_in=request.email_opt_in,
-            email_frequency=request.email_frequency
-        )
-        
-        logger.info(f"User {user_id} updated email preferences")
-        
-        return {
-            "success": True,
-            "message": "Email preferences updated successfully",
-            "data": result
-        }
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Error updating email preferences: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update email preferences: {str(e)}"
-        )
+    user_id = str(current_user.id)
+    
+    result = await asyncio.to_thread(
+        engagement_service.update_email_preferences,
+        user_id=user_id,
+        email_opt_in=request.email_opt_in,
+        email_frequency=request.email_frequency
+    )
+    
+    return {
+        "success": True,
+        "message": "Email preferences have been removed from the engagement system",
+        "data": result
+    }
 
 
 @router.get("/stats", response_model=EngagementStatsResponse, summary="Get user engagement statistics")

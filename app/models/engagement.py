@@ -51,14 +51,6 @@ class UserEngagement(Document):
     interests = ListField(StringField(max_length=100), default=list)  # Areas of interest
     goals = StringField(max_length=1000)  # What they want to achieve
     
-    # Email preferences
-    email_opt_in = BooleanField(default=True)
-    email_frequency = StringField(
-        max_length=20,
-        default='daily',
-        choices=['daily', 'weekly', 'biweekly', 'monthly']
-    )
-    
     # Email tracking
     welcome_sent = BooleanField(default=False)
     welcome_sent_at = DateTimeField(default=None)
@@ -92,8 +84,6 @@ class UserEngagement(Document):
             'profession': self.profession,
             'interests': self.interests,
             'goals': self.goals,
-            'email_opt_in': self.email_opt_in,
-            'email_frequency': self.email_frequency,
             'info_collected': self.info_collected,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None

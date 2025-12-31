@@ -80,42 +80,22 @@ class EngagementService:
         """
         Update user email preferences.
         
+        Note: Email preferences have been removed from the engagement form.
+        This method is kept for API compatibility but no longer performs any action.
+        
         Args:
             user_id: User ID
-            email_opt_in: Whether user wants to receive emails
-            email_frequency: Email frequency preference (daily, weekly, biweekly, monthly)
+            email_opt_in: (Deprecated) No longer used
+            email_frequency: (Deprecated) No longer used
             
         Returns:
-            Dictionary with updated preferences
+            Dictionary indicating the feature has been removed
         """
-        try:
-            # Get or create user engagement
-            engagement = UserEngagement.objects(user_id=user_id).first()
-            
-            if not engagement:
-                engagement = UserEngagement(user_id=user_id)
-            
-            # Update preferences if provided
-            if email_opt_in is not None:
-                engagement.email_opt_in = email_opt_in
-            if email_frequency is not None:
-                if email_frequency not in ['daily', 'weekly', 'biweekly', 'monthly']:
-                    raise ValueError(f"Invalid email frequency: {email_frequency}")
-                engagement.email_frequency = email_frequency
-            
-            engagement.save()
-            
-            logger.info(f"Updated email preferences for user {user_id}")
-            
-            return {
-                'user_id': user_id,
-                'email_opt_in': engagement.email_opt_in,
-                'email_frequency': engagement.email_frequency
-            }
-            
-        except Exception as e:
-            logger.error(f"Error updating email preferences for user {user_id}: {e}")
-            raise
+        logger.warning(f"Email preferences update requested for user {user_id}, but this feature has been removed")
+        return {
+            'user_id': user_id,
+            'message': 'Email preferences have been removed from the engagement system'
+        }
     
     def get_user_engagement_stats(self, user_id: str) -> Dict[str, Any]:
         """
@@ -145,8 +125,6 @@ class EngagementService:
                 'profession': engagement.profession,
                 'interests': engagement.interests,
                 'goals': engagement.goals,
-                'email_opt_in': engagement.email_opt_in,
-                'email_frequency': engagement.email_frequency,
                 'created_at': engagement.created_at.isoformat() if engagement.created_at else None,
                 'updated_at': engagement.updated_at.isoformat() if engagement.updated_at else None
             }
@@ -170,8 +148,6 @@ class EngagementService:
                             'profession': engagement_doc.get('profession'),
                             'interests': engagement_doc.get('interests', []),
                             'goals': engagement_doc.get('goals'),
-                            'email_opt_in': engagement_doc.get('email_opt_in', True),
-                            'email_frequency': engagement_doc.get('email_frequency', 'daily'),
                             'created_at': engagement_doc.get('created_at').isoformat() if engagement_doc.get('created_at') else None,
                             'updated_at': engagement_doc.get('updated_at').isoformat() if engagement_doc.get('updated_at') else None
                         }
