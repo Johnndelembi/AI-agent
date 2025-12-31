@@ -351,6 +351,370 @@ def health_check_task() -> Dict[str, Any]:
 
 
 # ============================================================================
+# EMAIL ENGAGEMENT TASKS (I/O-Bound)
+# ============================================================================
+
+@io_bound_task(
+    name="app.celery_tasks.send_welcome_emails_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2, "countdown": 60},
+)
+def send_welcome_emails_task(self) -> Dict[str, Any]:
+    """
+    Send welcome emails to users registered 1 hour ago.
+    
+    This task reads user data from database and sends welcome emails.
+    All database operations are read-only.
+    
+    Returns:
+        Dict with send statistics
+    """
+    try:
+        from app.services.email_service import email_service
+        from app.services.engagement_reader_service import engagement_reader_service
+        
+        logger.info("📧 Celery: Starting welcome emails task")
+        
+        # Get users registered 1 hour ago
+        new_users = engagement_reader_service.get_new_users(hours_ago=1)
+        
+        sent_count = 0
+        failed_count = 0
+        
+        for user in new_users:
+            try:
+                success = email_service.send_welcome_email(
+                    to_email=user['email'],
+                    fullname=user['fullname']
+                )
+                if success:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send welcome email to {user['email']}: {e}")
+                failed_count += 1
+        
+        logger.info(f"✅ Celery: Welcome emails sent: {sent_count} successful, {failed_count} failed")
+        
+        return {
+            "status": "success",
+            "sent_count": sent_count,
+            "failed_count": failed_count,
+            "total_users": len(new_users)
+        }
+    except Exception as e:
+        logger.error(f"❌ Celery: Welcome emails task failed: {e}")
+        raise
+
+
+@io_bound_task(
+    name="app.celery_tasks.send_re_engagement_emails_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2, "countdown": 60},
+)
+def send_re_engagement_emails_task(self) -> Dict[str, Any]:
+    """
+    Send re-engagement emails to inactive users (3+ days since last activity).
+    
+    This task reads conversation data from database and sends re-engagement emails.
+    All database operations are read-only.
+    
+    Returns:
+        Dict with send statistics
+    """
+    try:
+        from app.services.email_service import email_service
+        from app.services.engagement_reader_service import engagement_reader_service
+        
+        logger.info("📧 Celery: Starting re-engagement emails task")
+        
+        # Get inactive users
+        inactive_users = engagement_reader_service.get_inactive_users()
+        
+        sent_count = 0
+        failed_count = 0
+        
+        for user in inactive_users:
+            try:
+                days_inactive = 3  # Default threshold
+                if user.get('last_activity'):
+                    from datetime import datetime
+                    if isinstance(user['last_activity'], str):
+                        last_activity = datetime.fromisoformat(user['last_activity'].replace('Z', '+00:00'))
+                    else:
+                        last_activity = user['last_activity']
+                    days_inactive = (datetime.utcnow() - last_activity).days
+                
+                success = email_service.send_re_engagement_email(
+                    to_email=user['email'],
+                    fullname=user['fullname'],
+                    days_inactive=days_inactive
+                )
+                if success:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send re-engagement email to {user['email']}: {e}")
+                failed_count += 1
+        
+        logger.info(f"✅ Celery: Re-engagement emails sent: {sent_count} successful, {failed_count} failed")
+        
+        return {
+            "status": "success",
+            "sent_count": sent_count,
+            "failed_count": failed_count,
+            "total_users": len(inactive_users)
+        }
+    except Exception as e:
+        logger.error(f"❌ Celery: Re-engagement emails task failed: {e}")
+        raise
+
+
+@io_bound_task(
+    name="app.celery_tasks.send_engagement_form_emails_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2, "countdown": 60},
+)
+def send_engagement_form_emails_task(self) -> Dict[str, Any]:
+    """
+    Send engagement form emails to active users (5+ chats) who haven't provided info.
+    
+    This task reads user and conversation data from database and sends engagement form emails.
+    All database operations are read-only.
+    
+    Returns:
+        Dict with send statistics
+    """
+    try:
+        from app.services.email_service import email_service
+        from app.services.engagement_reader_service import engagement_reader_service
+        
+        logger.info("📧 Celery: Starting engagement form emails task")
+        
+        # Get active users eligible for engagement form
+        eligible_users = engagement_reader_service.get_active_users_for_engagement()
+        
+        sent_count = 0
+        failed_count = 0
+        
+        for user in eligible_users:
+            try:
+                success = email_service.send_engagement_form_email(
+                    to_email=user['email'],
+                    fullname=user['fullname'],
+                    total_chats=user.get('total_chats', 0)
+                )
+                if success:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send engagement form email to {user['email']}: {e}")
+                failed_count += 1
+        
+        logger.info(f"✅ Celery: Engagement form emails sent: {sent_count} successful, {failed_count} failed")
+        
+        return {
+            "status": "success",
+            "sent_count": sent_count,
+            "failed_count": failed_count,
+            "total_users": len(eligible_users)
+        }
+    except Exception as e:
+        logger.error(f"❌ Celery: Engagement form emails task failed: {e}")
+        raise
+
+
+@io_bound_task(
+    name="app.celery_tasks.send_curated_emails_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2, "countdown": 60},
+)
+def send_curated_emails_task(self) -> Dict[str, Any]:
+    """
+    Send curated daily emails with personalized tips to users who provided engagement info.
+    
+    This task reads user engagement data from database and sends personalized curated emails.
+    All database operations are read-only.
+    
+    Returns:
+        Dict with send statistics
+    """
+    try:
+        from app.services.email_service import email_service
+        from app.services.engagement_reader_service import engagement_reader_service
+        
+        logger.info("📧 Celery: Starting curated emails task")
+        
+        # Get users eligible for curated emails
+        eligible_users = engagement_reader_service.get_users_for_curated_emails()
+        
+        sent_count = 0
+        failed_count = 0
+        
+        for user in eligible_users:
+            try:
+                success = email_service.send_curated_email(
+                    to_email=user['email'],
+                    fullname=user['fullname'],
+                    engagement_data=user.get('engagement_data')
+                )
+                if success:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send curated email to {user['email']}: {e}")
+                failed_count += 1
+        
+        logger.info(f"✅ Celery: Curated emails sent: {sent_count} successful, {failed_count} failed")
+        
+        return {
+            "status": "success",
+            "sent_count": sent_count,
+            "failed_count": failed_count,
+            "total_users": len(eligible_users)
+        }
+    except Exception as e:
+        logger.error(f"❌ Celery: Curated emails task failed: {e}")
+        raise
+
+
+@io_bound_task(
+    name="app.celery_tasks.send_referral_campaign_emails_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2, "countdown": 60},
+)
+def send_referral_campaign_emails_task(self) -> Dict[str, Any]:
+    """
+    Send referral campaign emails to active users encouraging them to share Artemis.
+    
+    This task reads user data, referral codes, and points from database and sends referral emails.
+    All database operations are read-only.
+    
+    Returns:
+        Dict with send statistics
+    """
+    try:
+        from app.services.email_service import email_service
+        from app.services.engagement_reader_service import engagement_reader_service
+        
+        logger.info("📧 Celery: Starting referral campaign emails task")
+        
+        # Get users eligible for referral campaign
+        eligible_users = engagement_reader_service.get_users_for_referral_emails()
+        
+        sent_count = 0
+        failed_count = 0
+        
+        for user in eligible_users:
+            try:
+                success = email_service.send_referral_campaign_email(
+                    to_email=user['email'],
+                    fullname=user['fullname'],
+                    referral_code=user.get('referral_code'),
+                    referral_link=user.get('referral_link'),
+                    points_balance=user.get('points_balance', 0),
+                    referral_count=user.get('referral_count', 0)
+                )
+                if success:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send referral campaign email to {user['email']}: {e}")
+                failed_count += 1
+        
+        logger.info(f"✅ Celery: Referral campaign emails sent: {sent_count} successful, {failed_count} failed")
+        
+        return {
+            "status": "success",
+            "sent_count": sent_count,
+            "failed_count": failed_count,
+            "total_users": len(eligible_users)
+        }
+    except Exception as e:
+        logger.error(f"❌ Celery: Referral campaign emails task failed: {e}")
+        raise
+
+
+@io_bound_task(
+    name="app.celery_tasks.send_points_notification_emails_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2, "countdown": 60},
+)
+def send_points_notification_emails_task(self) -> Dict[str, Any]:
+    """
+    Send points notification emails to users who received points in the last 24 hours.
+    
+    This task reads user points data from database and sends notification emails.
+    All database operations are read-only.
+    
+    Returns:
+        Dict with send statistics
+    """
+    try:
+        from app.services.email_service import email_service
+        from app.services.engagement_reader_service import engagement_reader_service
+        
+        logger.info("📧 Celery: Starting points notification emails task")
+        
+        # Get users with recent points awards
+        users_with_points = engagement_reader_service.get_users_with_recent_points_awards(hours=24)
+        
+        sent_count = 0
+        failed_count = 0
+        
+        for user in users_with_points:
+            try:
+                points_awarded = user.get('points_awarded', 0)
+                awards = user.get('awards', [])
+                
+                # Determine reason from awards
+                reason = "referral"
+                if awards:
+                    first_award = awards[0]
+                    if isinstance(first_award, dict):
+                        reason = first_award.get('source', 'milestone')
+                    else:
+                        reason = getattr(first_award, 'source', 'milestone')
+                
+                success = email_service.send_points_notification_email(
+                    to_email=user['email'],
+                    fullname=user['fullname'],
+                    points_awarded=points_awarded,
+                    reason=reason
+                )
+                if success:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send points notification email to {user['email']}: {e}")
+                failed_count += 1
+        
+        logger.info(f"✅ Celery: Points notification emails sent: {sent_count} successful, {failed_count} failed")
+        
+        return {
+            "status": "success",
+            "sent_count": sent_count,
+            "failed_count": failed_count,
+            "total_users": len(users_with_points)
+        }
+    except Exception as e:
+        logger.error(f"❌ Celery: Points notification emails task failed: {e}")
+        raise
+
+
+# ============================================================================
 # DOCUMENT PROCESSING TASKS (CPU-Intensive)
 # ============================================================================
 

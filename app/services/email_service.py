@@ -6,7 +6,7 @@ Handles all email operations using Gmail SMTP server.
 import os
 import smtplib
 import re
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -281,7 +281,7 @@ class EmailService:
     
     def send_welcome_email(self, to_email: str, fullname: str = "") -> bool:
         """
-        Send welcome email to new user.
+        Send welcome email to new user (enhanced with personalization).
         
         Args:
             to_email: Recipient email address
@@ -294,9 +294,278 @@ class EmailService:
         subject = f"Welcome to {self.app_name}!"
         content = f"""
             <p>{greeting}</p>
-            <p>We are thrilled to have you join Artemis - AI Assistant. As our most valued user we aim to provide you with the best experience possible. Your all-in-one AI assistant platform.</p>
+            <p>We are thrilled to have you join {self.app_name}. As our most valued user, we aim to provide you with the best experience possible. Your all-in-one AI assistant platform.</p>
             <p>You can now start using all features of {self.app_name}.</p>
+            <p><strong>Getting Started:</strong></p>
+            <ul>
+                <li>Start a conversation with Artemis to get instant AI-powered assistance</li>
+                <li>Explore our features and discover how Artemis can help you</li>
+                <li>Customize your experience to match your needs</li>
+            </ul>
+            <p style="text-align: center;">
+                <a href="{self.frontend_url}" class="button">Get Started</a>
+            </p>
             <p>Thank you for joining us!</p>
+        """
+        
+        html_content = self._create_email_template(subject, content)
+        return self.send_email(to_email, subject, html_content)
+    
+    def send_re_engagement_email(self, to_email: str, fullname: str = "", days_inactive: int = 3) -> bool:
+        """
+        Send re-engagement email to inactive users.
+        
+        Args:
+            to_email: Recipient email address
+            fullname: User's full name (optional)
+            days_inactive: Number of days since last activity
+            
+        Returns:
+            True if email sent successfully, False otherwise
+        """
+        greeting = f"Hello {fullname}!" if fullname else "Hi there!"
+        subject = f"We miss you at {self.app_name}!"
+        content = f"""
+            <p>{greeting}</p>
+            <p>We noticed you haven't been active on {self.app_name} in a while. We'd love to have you back!</p>
+            <p><strong>What's New:</strong></p>
+            <ul>
+                <li>Enhanced AI capabilities for better assistance</li>
+                <li>New features to make your experience even better</li>
+                <li>Improved performance and reliability</li>
+            </ul>
+            <p>Come back and discover what's new, or simply continue where you left off.</p>
+            <p style="text-align: center;">
+                <a href="{self.frontend_url}" class="button">Return to {self.app_name}</a>
+            </p>
+            <p>We're here whenever you need us!</p>
+        """
+        
+        html_content = self._create_email_template(subject, content)
+        return self.send_email(to_email, subject, html_content)
+    
+    def send_engagement_form_email(self, to_email: str, fullname: str = "", total_chats: int = 0) -> bool:
+        """
+        Send engagement form email to active users to collect information.
+        
+        Args:
+            to_email: Recipient email address
+            fullname: User's full name (optional)
+            total_chats: Total number of chats the user has had
+            
+        Returns:
+            True if email sent successfully, False otherwise
+        """
+        greeting = f"Hello {fullname}!" if fullname else "Hi there!"
+        subject = f"Help us get to know you better, {fullname or 'there'}!"
+        
+        # Create embedded form
+        form_url = f"{self.frontend_url}/engagement/form"
+        
+        content = f"""
+            <p>{greeting}</p>
+            <p>We see you've been actively using {self.app_name} - that's amazing! You've had <strong>{total_chats} conversations</strong> with Artemis so far.</p>
+            <p>To help us serve you better and send you personalized tips and valuable information, we'd love to learn more about you.</p>
+            <p><strong>Quick Questions:</strong></p>
+            <ul>
+                <li>How do you use Artemis in your daily work?</li>
+                <li>What do you do for a living?</li>
+                <li>What are your main interests or goals?</li>
+            </ul>
+            <p style="text-align: center;">
+                <a href="{form_url}" class="button">Tell Us About Yourself</a>
+            </p>
+            <p>This will only take a minute, and it helps us tailor your experience!</p>
+        """
+        
+        html_content = self._create_email_template(subject, content)
+        return self.send_email(to_email, subject, html_content)
+    
+    def send_curated_email(
+        self,
+        to_email: str,
+        fullname: str = "",
+        engagement_data: Optional[Dict] = None
+    ) -> bool:
+        """
+        Send curated email with personalized tips based on user engagement data.
+        
+        Args:
+            to_email: Recipient email address
+            fullname: User's full name (optional)
+            engagement_data: Dictionary with user engagement info (use_case, profession, interests, goals)
+            
+        Returns:
+            True if email sent successfully, False otherwise
+        """
+        greeting = f"Hello {fullname}!" if fullname else "Hi there!"
+        subject = f"Your Daily {self.app_name} Tip"
+        
+        # Generate personalized content based on engagement data
+        profession = engagement_data.get('profession', '') if engagement_data else ''
+        use_case = engagement_data.get('use_case', '') if engagement_data else ''
+        interests = engagement_data.get('interests', []) if engagement_data else []
+        
+        # Build personalized tip content
+        tip_content = "<p><strong>Today's Tip:</strong></p>"
+        
+        if profession:
+            tip_content += f"<p>For {profession.lower()} professionals like you, here's a valuable tip to maximize your productivity with {self.app_name}:</p>"
+        else:
+            tip_content += f"<p>Here's a valuable tip to help you get the most out of {self.app_name}:</p>"
+        
+        # Generic tips (can be enhanced with AI-generated content later)
+        tips = [
+            "Use specific questions to get more accurate and helpful responses from Artemis.",
+            "Try breaking down complex tasks into smaller questions for better results.",
+            "Explore different conversation threads to organize your work by topic.",
+            "Use Artemis to brainstorm ideas, draft content, and solve problems faster.",
+            "Save time by asking Artemis to summarize long documents or conversations."
+        ]
+        
+        import random
+        selected_tip = random.choice(tips)
+        tip_content += f"<p><em>{selected_tip}</em></p>"
+        
+        if use_case:
+            tip_content += f"<p>Since you use Artemis for <strong>{use_case.lower()}</strong>, this tip should be particularly helpful!</p>"
+        
+        content = f"""
+            <p>{greeting}</p>
+            {tip_content}
+            <p style="text-align: center;">
+                <a href="{self.frontend_url}" class="button">Try It Now</a>
+            </p>
+            <p>Have a productive day!</p>
+        """
+        
+        html_content = self._create_email_template(subject, content)
+        return self.send_email(to_email, subject, html_content)
+    
+    def send_referral_campaign_email(
+        self,
+        to_email: str,
+        fullname: str = "",
+        referral_code: Optional[str] = None,
+        referral_link: Optional[str] = None,
+        points_balance: int = 0,
+        referral_count: int = 0
+    ) -> bool:
+        """
+        Send referral campaign email encouraging users to share Artemis.
+        
+        Args:
+            to_email: Recipient email address
+            fullname: User's full name (optional)
+            referral_code: User's unique referral code
+            referral_link: Full referral link
+            points_balance: Current points balance
+            referral_count: Number of successful referrals
+            
+        Returns:
+            True if email sent successfully, False otherwise
+        """
+        greeting = f"Hello {fullname}!" if fullname else "Hi there!"
+        subject = f"Share {self.app_name} and Earn Rewards!"
+        
+        # Build referral content
+        referral_section = ""
+        if referral_code and referral_link:
+            referral_section = f"""
+                <div class="code-box">
+                    <p><strong>Your Referral Code:</strong></p>
+                    <div class="code">{referral_code}</div>
+                    <p style="text-align: center; margin-top: 20px;">
+                        <a href="{referral_link}" class="button">Share Your Link</a>
+                    </p>
+                </div>
+            """
+        else:
+            referral_section = f"""
+                <p style="text-align: center;">
+                    <a href="{self.frontend_url}/referral" class="button">Get Your Referral Code</a>
+                </p>
+            """
+        
+        points_section = ""
+        if points_balance > 0:
+            points_section = f"""
+                <p><strong>Your Current Points:</strong> {points_balance}</p>
+                <p>You're making great progress! Keep sharing to unlock amazing rewards.</p>
+            """
+        
+        if referral_count > 0:
+            points_section += f"<p>You've already referred <strong>{referral_count} friend(s)</strong> - thank you!</p>"
+        
+        content = f"""
+            <p>{greeting}</p>
+            <p>Love using {self.app_name}? Share it with your friends and colleagues, and earn rewards!</p>
+            <p><strong>How It Works:</strong></p>
+            <ul>
+                <li>Share your unique referral link with friends</li>
+                <li>When they sign up and have 5+ conversations, you earn <strong>100 points</strong></li>
+                <li>Redeem points for valuable rewards like a <strong>Custom TTS Voice (500 points)</strong></li>
+            </ul>
+            {referral_section}
+            {points_section}
+            <p><strong>Why Share?</strong></p>
+            <ul>
+                <li>Help your friends discover an amazing AI assistant</li>
+                <li>Earn points for every successful referral</li>
+                <li>Unlock exclusive rewards and features</li>
+            </ul>
+            <p>Start sharing today and watch your points grow!</p>
+        """
+        
+        html_content = self._create_email_template(subject, content)
+        return self.send_email(to_email, subject, html_content)
+    
+    def send_points_notification_email(
+        self,
+        to_email: str,
+        fullname: str = "",
+        points_awarded: int = 0,
+        reason: str = "referral"
+    ) -> bool:
+        """
+        Send notification email when user earns points.
+        
+        Args:
+            to_email: Recipient email address
+            fullname: User's full name (optional)
+            points_awarded: Number of points awarded
+            reason: Reason for points (e.g., "referral", "milestone")
+            
+        Returns:
+            True if email sent successfully, False otherwise
+        """
+        greeting = f"Hello {fullname}!" if fullname else "Hi there!"
+        subject = f"🎉 You've Earned {points_awarded} Points!"
+        
+        reason_text = ""
+        if reason == "referral":
+            reason_text = "A friend you referred has reached 5+ conversations!"
+        else:
+            reason_text = f"You've reached a new milestone: {reason}!"
+        
+        content = f"""
+            <p>{greeting}</p>
+            <p><strong>Congratulations! 🎉</strong></p>
+            <p>You've just earned <strong>{points_awarded} points</strong>!</p>
+            <p>{reason_text}</p>
+            <div class="code-box">
+                <p style="font-size: 24px; margin: 0;"><strong>{points_awarded} Points</strong></p>
+            </div>
+            <p><strong>What's Next?</strong></p>
+            <ul>
+                <li>Keep sharing to earn more points</li>
+                <li>Redeem points for rewards like a Custom TTS Voice (500 points)</li>
+                <li>Check your points balance anytime</li>
+            </ul>
+            <p style="text-align: center;">
+                <a href="{self.frontend_url}/referral" class="button">View Your Points</a>
+            </p>
+            <p>Thank you for being an amazing member of the {self.app_name} community!</p>
         """
         
         html_content = self._create_email_template(subject, content)

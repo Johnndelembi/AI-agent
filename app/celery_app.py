@@ -70,6 +70,13 @@ celery_app.conf.update(
         "app.celery_tasks.scrape_webpage_task": {"queue": "io_bound"},
         "app.celery_tasks.process_document_task": {"queue": "cpu_intensive"},
         "app.celery_tasks.generate_response_task": {"queue": "cpu_intensive"},
+        # Email engagement tasks
+        "app.celery_tasks.send_welcome_emails_task": {"queue": "io_bound"},
+        "app.celery_tasks.send_re_engagement_emails_task": {"queue": "io_bound"},
+        "app.celery_tasks.send_engagement_form_emails_task": {"queue": "io_bound"},
+        "app.celery_tasks.send_curated_emails_task": {"queue": "io_bound"},
+        "app.celery_tasks.send_referral_campaign_emails_task": {"queue": "io_bound"},
+        "app.celery_tasks.send_points_notification_emails_task": {"queue": "io_bound"},
     },
     
     # Beat scheduler (for periodic tasks)
@@ -80,6 +87,31 @@ celery_app.conf.update(
         },
         "health-check": {
             "task": "app.celery_tasks.health_check_task",
+            "schedule": 86400.0,  # Every day
+        },
+        # Email engagement scheduled tasks
+        "send-welcome-emails": {
+            "task": "app.celery_tasks.send_welcome_emails_task",
+            "schedule": 3600.0,  # Every hour
+        },
+        "send-re-engagement-emails": {
+            "task": "app.celery_tasks.send_re_engagement_emails_task",
+            "schedule": 86400.0,  # Every day
+        },
+        "send-engagement-form-emails": {
+            "task": "app.celery_tasks.send_engagement_form_emails_task",
+            "schedule": 86400.0,  # Every day
+        },
+        "send-curated-emails": {
+            "task": "app.celery_tasks.send_curated_emails_task",
+            "schedule": 86400.0,  # Every day
+        },
+        "send-referral-campaign-emails": {
+            "task": "app.celery_tasks.send_referral_campaign_emails_task",
+            "schedule": 604800.0,  # Every week (7 days)
+        },
+        "send-points-notification-emails": {
+            "task": "app.celery_tasks.send_points_notification_emails_task",
             "schedule": 86400.0,  # Every day
         },
     },
