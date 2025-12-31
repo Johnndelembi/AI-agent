@@ -35,7 +35,7 @@ class EmailService:
         self.smtp_port = SMTP_PORT or int(os.getenv("SMTP_PORT", "587"))
         self.sender_email = SENDER_EMAIL or os.getenv("SENDER_EMAIL")
         self.sender_password = SENDER_PASSWORD or os.getenv("SENDER_PASSWORD")
-        self.app_name = os.getenv("APP_NAME", "AI Agent")
+        self.app_name = os.getenv("APP_NAME", "Artemis - AI Assistant")
         self.frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
         
         if not self.sender_email or not self.sender_password:
@@ -198,7 +198,7 @@ class EmailService:
             # Create message
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
-            msg['From'] = f"{self.app_name} <{self.sender_email}>"
+            msg['From'] = f"{self.app_name} <artemis@ares.codes>"
             msg['To'] = to_email
             
             if cc:
@@ -279,66 +279,6 @@ class EmailService:
         
         return self.send_email(to_email, subject, content, is_html=use_template)
     
-    def send_verification_code(self, to_email: str, code: str, expiry_minutes: int = 10) -> bool:
-        """
-        Send email verification code.
-        
-        Args:
-            to_email: Recipient email address
-            code: Verification code
-            expiry_minutes: Code expiry time in minutes
-            
-        Returns:
-            True if email sent successfully, False otherwise
-        """
-        subject = f"Your {self.app_name} Verification Code"
-        content = f"""
-            <p>Thank you for registering! Use this code to verify your email:</p>
-            <div class="code-box">
-                <div class="code">{code}</div>
-                <div style="color: #e74c3c; font-size: 14px; margin-top: 10px;">
-                    ⏰ Expires in {expiry_minutes} minute{'s' if expiry_minutes != 1 else ''}
-                </div>
-            </div>
-            <p>Enter this code to activate your account.</p>
-            <p><strong>Security:</strong> Never share this code. If you didn't request it, ignore this email.</p>
-        """
-        
-        html_content = self._create_email_template(subject, content)
-        return self.send_email(to_email, subject, html_content)
-    
-    def send_password_reset_email(self, to_email: str, reset_token: str, expiry_hours: int = 1) -> bool:
-        """
-        Send password reset email with reset link.
-        
-        Args:
-            to_email: Recipient email address
-            reset_token: Password reset token
-            expiry_hours: Token expiry time in hours
-            
-        Returns:
-            True if email sent successfully, False otherwise
-        """
-        reset_link = f"{self.frontend_url}/reset-password?token={reset_token}"
-        subject = f"Reset Your {self.app_name} Password"
-        content = f"""
-            <p>We received a request to reset your password.</p>
-            <p style="text-align: center;">
-                <a href="{reset_link}" class="button">Reset Password</a>
-            </p>
-            <div style="color: #e74c3c; font-size: 14px; text-align: center;">
-                ⏰ This link expires in {expiry_hours} hour{'s' if expiry_hours != 1 else ''}
-            </div>
-            <p>Or copy this link:</p>
-            <div style="background: #f8f9fa; border: 1px solid #ddd; padding: 10px; margin: 10px 0; word-break: break-all; font-size: 12px; border-radius: 5px;">
-                {reset_link}
-            </div>
-            <p><strong>Security:</strong> If you didn't request this, ignore this email.</p>
-        """
-        
-        html_content = self._create_email_template(subject, content)
-        return self.send_email(to_email, subject, html_content)
-    
     def send_welcome_email(self, to_email: str, fullname: str = "") -> bool:
         """
         Send welcome email to new user.
@@ -350,11 +290,11 @@ class EmailService:
         Returns:
             True if email sent successfully, False otherwise
         """
-        greeting = f"Hello {fullname}!" if fullname else "Hello!"
+        greeting = f"Hello {fullname}!" if fullname else "Hi there!"
         subject = f"Welcome to {self.app_name}!"
         content = f"""
             <p>{greeting}</p>
-            <p>Your account has been successfully created and verified! 🚀</p>
+            <p>We are thrilled to have you join Artemis - AI Assistant. As our most valued user we aim to provide you with the best experience possible. Your all-in-one AI assistant platform.</p>
             <p>You can now start using all features of {self.app_name}.</p>
             <p>Thank you for joining us!</p>
         """
@@ -383,8 +323,8 @@ class EmailService:
         Returns:
             True if email sent successfully, False otherwise
         """
-        subject = f"{self.app_name} - {title}"
-        content = f"<h2>{title}</h2><p>{message}</p>"
+        subject = f"{title}"
+        content = f"<p>{message}</p>"
         
         if action_url and action_text:
             content += f'<p style="text-align: center;"><a href="{action_url}" class="button">{action_text}</a></p>'

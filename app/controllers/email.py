@@ -91,7 +91,7 @@ async def get_email_status() -> EmailStatusResponse:
 @handle_http_errors("Error sending email")
 async def send_email(
     request: SendEmailRequest,
-    current_user: User = Depends(get_current_user)
+    # current_user: User = Depends(get_current_user)
 ) -> SendEmailResponse:
     """
     Send a simple email via Google SMTP.
@@ -117,7 +117,7 @@ async def send_email(
     )
     
     if success:
-        logger.info(f"Email sent to {request.to_email} by user {current_user.email}")
+        logger.info(f"Email sent to {request.to_email}")
         return SendEmailResponse(
             success=True,
             message="Email sent successfully",
@@ -134,7 +134,7 @@ async def send_email(
 @handle_http_errors("Error sending bulk emails")
 async def send_bulk_email(
     request: SendBulkEmailRequest,
-    current_user: User = Depends(get_current_user)
+    # current_user: User = Depends(get_current_user)
 ) -> SendBulkEmailResponse:
     """
     Send emails to multiple recipients.
@@ -171,7 +171,7 @@ async def send_bulk_email(
             failed_recipients.append(recipient)
     
     logger.info(
-        f"Bulk email sent by user {current_user.email}: "
+        f"Bulk email sent: "
         f"{sent_count} successful, {failed_count} failed"
     )
     
@@ -187,7 +187,7 @@ async def send_bulk_email(
 @handle_http_errors("Error sending email with attachments")
 async def send_email_with_attachments(
     request: SendEmailWithAttachmentsRequest,
-    current_user: User = Depends(get_current_user)
+    # current_user: User = Depends(get_current_user)
 ) -> SendEmailResponse:
     """
     Send an email with optional attachments, CC, and BCC.
@@ -222,7 +222,7 @@ async def send_email_with_attachments(
     )
     
     if success:
-        logger.info(f"Email with attachments sent to {request.to_email} by user {current_user.email}")
+        logger.info(f"Email with attachments sent to {request.to_email}")
         return SendEmailResponse(
             success=True,
             message="Email sent successfully",
@@ -243,7 +243,7 @@ async def send_notification_email(
     to_email: str,
     action_url: Optional[str] = None,
     action_text: Optional[str] = None,
-    current_user: User = Depends(get_current_user)
+    # current_user: User = Depends(get_current_user)
 ) -> SendEmailResponse:
     """
     Send a notification email with optional action button.
@@ -271,7 +271,7 @@ async def send_notification_email(
     )
     
     if success:
-        logger.info(f"Notification email sent to {to_email} by user {current_user.email}")
+        logger.info(f"Notification email sent to {to_email}")
         return SendEmailResponse(
             success=True,
             message="Notification email sent successfully",
