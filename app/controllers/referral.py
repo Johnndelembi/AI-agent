@@ -100,7 +100,9 @@ async def get_referral_code(
             )
         
         frontend_url = os.getenv("FRONTEND_URL", "https://artemis.ares.codes")
-        referral_link = f"{frontend_url}/signup?ref={code}"
+        # Use Google OAuth login endpoint with referral code in state parameter
+        # The state parameter will be passed through the OAuth flow and extracted in the callback
+        referral_link = f"{frontend_url}/auth/google/login?state={code}"
         
         return ReferralCodeResponse(
             user_id=user_id,

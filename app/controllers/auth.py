@@ -26,12 +26,17 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 
 @router.get("/google/login", summary="Initiate Google OAuth login")
 @handle_http_errors("Failed to initiate Google OAuth")
-async def google_login(redirect_uri: str = None, frontend_url: str = None):
+async def google_login(
+    redirect_uri: str = None, 
+    frontend_url: str = None,
+    state: str = None
+):
     """
     Initiates Google OAuth flow.
     
     - **redirect_uri**: Where Google should redirect after auth (default: frontend callback)
     - **frontend_url**: Frontend URL (for fallback)
+    - **state**: Optional state parameter (can be used for referral codes like "ARTEMIS-XXXXXX")
     """
     # Use frontend callback URL if provided, otherwise use backend
     if redirect_uri:
@@ -42,9 +47,10 @@ async def google_login(redirect_uri: str = None, frontend_url: str = None):
         # Default to frontend callback
         callback_url = "https://artemis.ares.codes/auth/google/callback"
     
-    # Generate OAuth URL with frontend callback
+    # Generate OAuth URL with frontend callback and state (for referral codes)
     oauth_url = google_oauth_service.get_authorization_url(
-        redirect_uri=callback_url
+        redirect_uri=callback_url,
+        state=state
     )
     
     return RedirectResponse(url=oauth_url)
