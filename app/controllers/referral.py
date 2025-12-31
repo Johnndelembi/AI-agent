@@ -6,9 +6,9 @@ import os
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 
-from app.services.referral_service import referral_service
+from app.services.referral_service import referral_service, VOICE_GRADE_POINTS
 from app.utils.auth_utils import get_current_active_user
 from app.utils.error_handler import handle_http_errors
 from app.models.auth import User
@@ -25,7 +25,8 @@ class RegisterReferralRequest(BaseModel):
 
 class RedeemPointsRequest(BaseModel):
     """Request model for redeeming points."""
-    reward_type: str = Field(..., description="Type of reward to redeem (e.g., 'custom_voice')")
+    reward_type: str = Field(..., description="Type of reward to redeem (e.g., 'voice')")
+    voice_name: Optional[str] = Field(None, description="Voice name if redeeming a voice (e.g., 'af_heart')")
 
 
 class ReferralCodeResponse(BaseModel):
@@ -54,9 +55,21 @@ class PointsResponse(BaseModel):
     points_history_count: int
 
 
+class VoiceReward(BaseModel):
+    """Model for voice reward information."""
+    type: str
+    voice_name: str
+    name: str
+    description: str
+    grade: str
+    points_cost: int
+    available: bool
+    redeemed: bool
+
+
 class RewardsResponse(BaseModel):
     """Response model for available rewards."""
-    rewards: list
+    rewards: List[VoiceReward]
     points_balance: int
 
 
@@ -217,7 +230,8 @@ async def redeem_points(
         result = await asyncio.to_thread(
             referral_service.redeem_points,
             user_id=user_id,
-            reward_type=request.reward_type
+            reward_type=request.reward_type,
+            voice_name=request.voice_name
         )
         
         logger.info(f"User {user_id} redeemed {request.reward_type}")
@@ -248,10 +262,14 @@ async def get_rewards(
     """
     Get available rewards and their point costs.
     
+    Shows all available TTS voices organized by grade with their point costs.
+    
     Requires: Valid JWT token in Authorization header.
     """
     try:
-        import os
+        from app.config import VOICE_DESCRIPTIONS, AVAILABLE_VOICES
+        import re
+        
         user_id = str(current_user.id)
         
         # Get user's points balance
@@ -260,23 +278,64 @@ async def get_rewards(
             user_id=user_id
         )
         
-        # Define available rewards
-        custom_voice_cost = int(os.getenv("CUSTOM_VOICE_POINTS_COST", "500"))
+        points_balance = points_data["total_points"]
         
-        rewards = [
-            {
-                "type": "custom_voice",
-                "name": "Custom TTS Voice",
-                "description": "Create a personalized text-to-speech voice",
-                "points_cost": custom_voice_cost,
-                "available": points_data["total_points"] >= custom_voice_cost
-            }
-            # Add more rewards here
-        ]
+        # Get already redeemed voices
+        redeemed_voices = [r.replace('voice:', '') for r in points_data.get("rewards_redeemed", []) if r.startswith('voice:')]
+        
+        # Organize voices by grade
+        rewards = []
+        
+        for voice_name in AVAILABLE_VOICES:
+            voice_desc = VOICE_DESCRIPTIONS.get(voice_name, "")
+            
+            # Extract grade from description
+            grade_match = re.search(r'Grade\s+([A-F][+-]?)', voice_desc)
+            if not grade_match:
+                continue
+            
+            grade = grade_match.group(1)
+            points_cost = VOICE_GRADE_POINTS.get(grade, 0)
+            
+            if points_cost == 0:
+                continue
+            
+            # Check if already redeemed
+            is_redeemed = voice_name in redeemed_voices
+            
+            # Extract voice description without grade
+            voice_display = voice_desc.split(' - Grade')[0].strip()
+            
+            rewards.append({
+                "type": "voice",
+                "voice_name": voice_name,
+                "name": voice_display,
+                "description": f"Grade {grade} TTS Voice",
+                "grade": grade,
+                "points_cost": points_cost,
+                "available": points_balance >= points_cost and not is_redeemed,
+                "redeemed": is_redeemed
+            })
+        
+        # Sort by grade (A to F) and then by points cost (descending)
+        grade_order = {'A': 0, 'A-': 1, 'B+': 2, 'B': 3, 'B-': 4, 'C+': 5, 'C': 6, 'C-': 7, 
+                      'D+': 8, 'D': 9, 'D-': 10, 'F+': 11, 'F': 12}
+        
+        def sort_key(r):
+            grade = r.get('grade', 'F')
+            base_grade = grade[0]
+            modifier = grade[1:] if len(grade) > 1 else ''
+            # Sort by grade order, then by points cost descending
+            return (grade_order.get(base_grade, 99), -r.get('points_cost', 0))
+        
+        rewards.sort(key=sort_key)
+        
+        # Convert to VoiceReward objects
+        voice_rewards = [VoiceReward(**r) for r in rewards]
         
         return RewardsResponse(
-            rewards=rewards,
-            points_balance=points_data["total_points"]
+            rewards=voice_rewards,
+            points_balance=points_balance
         )
     except Exception as e:
         logger.error(f"Error getting rewards: {e}")

@@ -20,8 +20,21 @@ from app.config import logger
 
 # Configuration
 POINTS_PER_REFERRAL = int(os.getenv("POINTS_PER_REFERRAL", "100"))
-CUSTOM_VOICE_POINTS_COST = int(os.getenv("CUSTOM_VOICE_POINTS_COST", "500"))
 MIN_CHATS_FOR_REFERRAL_POINTS = int(os.getenv("MIN_CHATS_FOR_REFERRAL_POINTS", "5"))
+
+# Voice grade to points cost mapping
+VOICE_GRADE_POINTS = {
+    'A': 1000,      # Premium quality
+    'A-': 800,      # High quality
+    'B-': 600,      # Good quality
+    'C+': 400,      # Standard quality
+    'C': 300,       # Basic quality
+    'C-': 250,      # Basic- quality
+    'D+': 200,      # Low quality
+    'D': 150,       # Low quality
+    'D-': 100,      # Very low quality
+    'F+': 50,       # Lowest quality
+}
 
 
 class ReferralService:
@@ -282,13 +295,14 @@ class ReferralService:
                 'error': str(e)
             }
     
-    def redeem_points(self, user_id: str, reward_type: str) -> Dict[str, Any]:
+    def redeem_points(self, user_id: str, reward_type: str, voice_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Redeem points for a reward.
         
         Args:
             user_id: User ID
-            reward_type: Type of reward (e.g., 'custom_voice')
+            reward_type: Type of reward (e.g., 'voice' for TTS voice)
+            voice_name: Optional voice name if redeeming a voice (e.g., 'af_heart')
             
         Returns:
             Dictionary with redemption info
@@ -299,47 +313,74 @@ class ReferralService:
             if not user_points:
                 raise ValueError("User has no points account")
             
-            # Determine points cost
-            reward_costs = {
-                'custom_voice': CUSTOM_VOICE_POINTS_COST,
-                # Add more rewards here
-            }
-            
-            if reward_type not in reward_costs:
-                raise ValueError(f"Unknown reward type: {reward_type}")
-            
-            points_cost = reward_costs[reward_type]
-            
-            # Check if user has enough points
-            if user_points.total_points < points_cost:
-                raise ValueError(
-                    f"Insufficient points. Balance: {user_points.total_points}, Required: {points_cost}"
+            # Handle voice redemption
+            if reward_type == 'voice':
+                if not voice_name:
+                    raise ValueError("voice_name is required when redeeming a voice")
+                
+                # Get voice grade and calculate cost
+                from app.config import VOICE_DESCRIPTIONS
+                
+                voice_desc = VOICE_DESCRIPTIONS.get(voice_name)
+                if not voice_desc:
+                    raise ValueError(f"Unknown voice: {voice_name}")
+                
+                # Extract grade from description (e.g., "Grade A", "Grade C+")
+                import re
+                grade_match = re.search(r'Grade\s+([A-F][+-]?)', voice_desc)
+                if not grade_match:
+                    raise ValueError(f"Could not determine grade for voice {voice_name}")
+                
+                grade = grade_match.group(1)
+                points_cost = VOICE_GRADE_POINTS.get(grade)
+                
+                if not points_cost:
+                    raise ValueError(f"Unknown grade: {grade} for voice {voice_name}")
+                
+                # Check if user has enough points
+                if user_points.total_points < points_cost:
+                    raise ValueError(
+                        f"Insufficient points. Balance: {user_points.total_points}, Required: {points_cost} "
+                        f"(Grade {grade} voice)"
+                    )
+                
+                # Check if this specific voice is already redeemed
+                redeemed_voices = [r for r in user_points.rewards_redeemed if r.startswith('voice:')]
+                if f'voice:{voice_name}' in user_points.rewards_redeemed:
+                    raise ValueError(f"Voice {voice_name} already redeemed")
+                
+                # Spend points
+                user_points.spend_points(
+                    amount=points_cost,
+                    reason='redemption',
+                    description=f"Redeemed voice: {voice_name} (Grade {grade})",
+                    metadata={'reward_type': 'voice', 'voice_name': voice_name, 'grade': grade}
                 )
-            
-            # Check if already redeemed
-            if reward_type in user_points.rewards_redeemed:
-                raise ValueError(f"Reward {reward_type} already redeemed")
-            
-            # Spend points
-            user_points.spend_points(
-                amount=points_cost,
-                reason='redemption',
-                description=f"Redeemed {reward_type}",
-                metadata={'reward_type': reward_type}
-            )
-            
-            # Mark reward as redeemed
-            user_points.redeem_reward(reward_type)
-            
-            logger.info(f"User {user_id} redeemed {reward_type} for {points_cost} points")
-            
-            return {
-                'user_id': user_id,
-                'reward_type': reward_type,
-                'points_spent': points_cost,
-                'remaining_points': user_points.total_points,
-                'rewards_redeemed': user_points.rewards_redeemed
-            }
+                
+                # Mark voice as redeemed
+                user_points.redeem_reward(f'voice:{voice_name}')
+                
+                # Update user's TTS voice preference
+                from app.models.auth import User
+                user = User.objects(id=user_id).first()
+                if user:
+                    user.tts_voice = voice_name
+                    user.save()
+                
+                logger.info(f"User {user_id} redeemed voice {voice_name} (Grade {grade}) for {points_cost} points")
+                
+                return {
+                    'user_id': user_id,
+                    'reward_type': 'voice',
+                    'voice_name': voice_name,
+                    'grade': grade,
+                    'points_spent': points_cost,
+                    'remaining_points': user_points.total_points,
+                    'rewards_redeemed': user_points.rewards_redeemed
+                }
+            else:
+                # Handle other reward types (for future expansion)
+                raise ValueError(f"Unknown reward type: {reward_type}")
             
         except Exception as e:
             logger.error(f"Error redeeming points for user {user_id}: {e}")
