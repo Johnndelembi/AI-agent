@@ -99,7 +99,7 @@ async def get_referral_code(
                 detail="Failed to generate referral code"
             )
         
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        frontend_url = os.getenv("FRONTEND_URL", "https://artemis.ares.codes")
         referral_link = f"{frontend_url}/signup?ref={code}"
         
         return ReferralCodeResponse(
