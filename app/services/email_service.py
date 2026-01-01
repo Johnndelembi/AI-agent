@@ -39,12 +39,7 @@ class EmailService:
         self.sender_password = SENDER_PASSWORD or os.getenv("SENDER_PASSWORD")
         self.app_name = os.getenv("APP_NAME", "Artemis - AI Assistant")
         self.frontend_url = os.getenv("FRONTEND_URL", "https://artemis.ares.codes")
-        
-        if not self.sender_email or not self.sender_password:
-            logger.warning(
-                "Email service not fully configured. "
-                "Set SENDER_EMAIL and SENDER_PASSWORD in .env for Google SMTP"
-            )
+        self._warned = False  # Track if we've already warned about missing config
     
     def is_configured(self) -> bool:
         """Check if email service is properly configured."""
@@ -274,6 +269,12 @@ Generate only the tip text, nothing else:"""
             True if email sent successfully, False otherwise
         """
         if not self.is_configured():
+            if not self._warned:
+                logger.warning(
+                    "Email service not fully configured. "
+                    "Set SENDER_EMAIL and SENDER_PASSWORD in .env for Google SMTP"
+                )
+                self._warned = True
             logger.error("Email service not configured. Set SENDER_EMAIL and SENDER_PASSWORD in .env")
             return False
         
