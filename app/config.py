@@ -57,6 +57,8 @@ class Settings:
     SMTP_PORT: int = int(os.getenv('SMTP_PORT', '587'))
     SENDER_EMAIL: str = os.getenv('SENDER_EMAIL')
     SENDER_PASSWORD: str = os.getenv('SENDER_PASSWORD')
+    APP_NAME: str = os.getenv('APP_NAME', 'Artemis - AI Assistant')
+    FRONTEND_URL: str = os.getenv('FRONTEND_URL', 'http://localhost:3000')
     
     
     # ============================================================================
@@ -165,6 +167,8 @@ SMTP_SERVER = settings.SMTP_SERVER
 SMTP_PORT = settings.SMTP_PORT
 SENDER_EMAIL = settings.SENDER_EMAIL
 SENDER_PASSWORD = settings.SENDER_PASSWORD
+APP_NAME = settings.APP_NAME
+FRONTEND_URL = settings.FRONTEND_URL
 ENVIRONMENT = settings.ENVIRONMENT
 IS_DEV = settings.IS_DEV
 
@@ -199,6 +203,8 @@ __all__ = [
     'SMTP_PORT',
     'SENDER_EMAIL',
     'SENDER_PASSWORD',
+    'APP_NAME',
+    'FRONTEND_URL',
     
     # Audio (for cleanup tasks)
     'AUDIO_OUTPUT_DIR',

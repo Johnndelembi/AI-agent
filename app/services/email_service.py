@@ -21,7 +21,9 @@ from app.config import (
     logger,
     settings,
     CHATBOT_MODEL,
-    MODEL_PROVIDER
+    MODEL_PROVIDER,
+    APP_NAME,
+    FRONTEND_URL
 )
 
 
@@ -37,8 +39,8 @@ class EmailService:
         self.smtp_port = SMTP_PORT or int(os.getenv("SMTP_PORT", "587"))
         self.sender_email = SENDER_EMAIL or os.getenv("SENDER_EMAIL")
         self.sender_password = SENDER_PASSWORD or os.getenv("SENDER_PASSWORD")
-        self.app_name = os.getenv("APP_NAME", "Artemis - AI Assistant")
-        self.frontend_url = os.getenv("FRONTEND_URL", "https://artemis.ares.codes")
+        self.app_name = APP_NAME or os.getenv("APP_NAME", "Artemis - AI Assistant")
+        self.frontend_url = FRONTEND_URL or os.getenv("FRONTEND_URL", "https://artemis.ares.codes")
         self._warned = False  # Track if we've already warned about missing config
     
     def is_configured(self) -> bool:
