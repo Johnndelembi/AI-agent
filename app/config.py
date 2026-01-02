@@ -36,7 +36,7 @@ class Settings:
     # API KEYS
     # ============================================================================
     # Chatbot API configuration
-    CHATBOT_MODEL: str = os.getenv("CHATBOT_MODEL", "openai:gpt-4")
+    CHATBOT_MODEL: str = os.getenv("CHATBOT_MODEL", "openai:gpt-5.1")
     CHATBOT_API_KEY: str = os.getenv("CHATBOT_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")

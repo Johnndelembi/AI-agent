@@ -97,7 +97,7 @@ Create a `.env` file:
 
 ```env
 # LLM configuration
-CHATBOT_MODEL=openai:gpt-4             # or another supported model
+CHATBOT_MODEL=openai:gpt-5.1           # or another supported model
 CHATBOT_API_KEY=your-openai-api-key    # OpenAI, Anthropic, or Google API key
 
 # Tavily Search
@@ -326,7 +326,7 @@ curl -X POST http://localhost:8000/chat/message \
 
 | Variable            | Description                                         | Default      |
 |---------------------|-----------------------------------------------------|--------------|
-| `CHATBOT_MODEL`     | LLM model (e.g., `gemini-pro`, `openai:gpt-4`)    | Required     |
+| `CHATBOT_MODEL`     | LLM model (e.g., `gemini-pro`, `openai:gpt-5.1`)    | Required     |
 | `CHATBOT_API_KEY`   | API key for the selected LLM provider              | Required     |
 | `TAVILY_API_KEY`    | Tavily Search Engine API key                       | Required     |
 | `TTS_VOICE`         | TTS voice to use                                   | `af_heart`   |

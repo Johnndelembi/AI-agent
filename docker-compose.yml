@@ -50,7 +50,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       # Model configuration
-      - CHATBOT_MODEL=${CHATBOT_MODEL:-openai:gpt-4}
+      - CHATBOT_MODEL=${CHATBOT_MODEL:-openai:gpt-5.1}
       # Environment
       - ENV=${ENV:-production}
       - ENVIRONMENT=${ENVIRONMENT:-production}
@@ -120,7 +120,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - CHATBOT_MODEL=${CHATBOT_MODEL:-openai:gpt-4}
+      - CHATBOT_MODEL=${CHATBOT_MODEL:-openai:gpt-5.1}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       # MongoDB Configuration
       - MONGO_URI=${MONGO_URI}
