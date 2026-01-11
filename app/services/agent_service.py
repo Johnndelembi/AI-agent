@@ -164,6 +164,104 @@ def generate_audio_response(text: str, voice: str = None, lang_code: str = None)
 
 
 @tool
+def search_sgr_trips(from_id: int, to_id: int, date: str) -> str:
+    """
+    Search for Tanzania SGR (Standard Gauge Railway) train trips between stations.
+    
+    Args:
+        from_id: Departure station ID (1-12)
+        to_id: Destination station ID (1-12)
+        date: Travel date in YYYY-MM-DD format (e.g., "2026-01-25")
+    
+    Returns:
+        Formatted string with available trips, times, prices, and seat availability.
+    """
+    url = "https://sgrticket-api.trc.co.tz/TICIDIS/api/v1/Public/SearchTrip"
+    
+    payload = {
+        "boardingStationId": from_id,
+        "landingStationId": to_id,
+        "date": date,
+        "isOneWay": True,
+        "passengerCount": 1,
+        "departureDate": f"{date}T00:00:00.000Z",
+        "returnDate": f"{date}T00:00:00.000Z",
+        "isReservation": False,
+        "loginType": 2
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        
+        if not data.get("ok") or not data.get("data"):
+            message = data.get("message", "No trips found")
+            return f"🚂 SGR Trip Search Results:\n\n{message}"
+        
+        trips = data["data"]
+        if not trips:
+            return f"🚂 No trips found for the selected route on {date}."
+        
+        result = f"🚂 **Tanzania SGR Trip Search Results**\n\n"
+        result += f"📅 Date: {date}\n"
+        result += f"🔢 Found {len(trips)} available trip(s)\n\n"
+        result += "─" * 60 + "\n\n"
+        
+        for idx, trip in enumerate(trips, 1):
+            result += f"**Trip {idx}: {trip.get('tripName', 'N/A')}**\n"
+            result += f"🚉 Route: {trip.get('boardingStationName', 'N/A')} → {trip.get('landingStationName', 'N/A')}\n"
+            result += f"⏰ Departure: {trip.get('startTime', 'N/A')}\n"
+            result += f"⏰ Arrival: {trip.get('endTime', 'N/A')}\n"
+            
+            price = trip.get('tripsPrice', 0.0)
+            currency = trip.get('tripsPriceCurrency', 'TZS')
+            if price > 0:
+                result += f"💰 Price: {price:,.0f} {currency}\n"
+            else:
+                result += f"💰 Price: Varies by class\n"
+            
+            railway_cars = trip.get('railwayCars', [])
+            if railway_cars:
+                result += f"\n**Available Classes:**\n"
+                
+                class_summary = {}
+                for car in railway_cars:
+                    class_name = car.get('typeName', 'Unknown')
+                    empty_seats = car.get('emptySeats', 0)
+                    capacity = car.get('capacity', 0)
+                    
+                    if class_name not in class_summary:
+                        class_summary[class_name] = {'empty': 0, 'total': 0, 'cars': 0}
+                    
+                    class_summary[class_name]['empty'] += empty_seats
+                    class_summary[class_name]['total'] += capacity
+                    class_summary[class_name]['cars'] += 1
+                
+                for class_name, stats in class_summary.items():
+                    available = stats['empty']
+                    total = stats['total']
+                    result += f"  • **{class_name}**: {available} / {total} seats available ({stats['cars']} car(s))\n"
+            
+            result += "\n" + "─" * 60 + "\n\n"
+        
+        return result
+    
+    except httpx.HTTPError as e:
+        logger.error(f"SGR API HTTP error: {e}")
+        return f"❌ Error connecting to SGR API: {str(e)}"
+    except Exception as e:
+        logger.error(f"SGR API error: {e}")
+        return f"❌ Error searching for SGR trips: {str(e)}"
+
+
+@tool
 async def browse_web_page(url: str) -> str:
     """Browses a web page or social media post and returns its content (async, non-blocking)."""
     if not url or not url.startswith(('http://', 'https://')):
@@ -613,6 +711,7 @@ class ConversationalAgent:
             # generate_research_methodology,
             # generate_study_plan,
             generate_audio_response,
+            search_sgr_trips,
             # send_email,
             # authenticate_employee_login,
             # add_employee_to_meal_system,
@@ -654,6 +753,48 @@ class ConversationalAgent:
             "- Interactive React-based websites designs\n\n"
             "- UI/UX design\n\n"
             "- Artificial Intelligence & AI Models development\n\n"
+
+            "## 🚂 TANZANIA SGR (STANDARD GAUGE RAILWAY)\n"
+            "You have access to a tool for searching Tanzania Standard Gauge Railway (SGR) train trips.\n\n"
+            "**When to use:** Use the search_sgr_trips tool when users ask about:\n"
+            "- Finding train trips between SGR stations\n"
+            "- Checking available trains on specific dates\n"
+            "- Getting train schedules, prices, or seat availability\n"
+            "- Travel planning using Tanzania SGR\n\n"
+            "**Station IDs and Names:**\n"
+            "- 1: Dar Es Salaam\n"
+            "- 2: Pugu\n"
+            "- 3: Soga\n"
+            "- 4: Ruvu\n"
+            "- 5: Ngerengere\n"
+            "- 6: Morogoro\n"
+            "- 7: Mkata\n"
+            "- 8: Kilosa\n"
+            "- 9: Kidete\n"
+            "- 10: Gulwe\n"
+            "- 11: Igandu\n"
+            "- 12: Dodoma\n\n"
+            "**Tool Parameters:**\n"
+            "- from_id (int): Departure station ID (1-12)\n"
+            "- to_id (int): Destination station ID (1-12)\n"
+            "- date (str): Travel date in YYYY-MM-DD format (e.g., \"2026-01-25\")\n\n"
+            "**How to use:**\n"
+            "- Map station names to IDs when users mention station names\n"
+            "- Extract dates from user queries and format as YYYY-MM-DD\n"
+            "- If user says \"today\", \"tomorrow\", or relative dates, calculate the actual date\n"
+            "- Call search_sgr_trips with the mapped station IDs and formatted date\n"
+            "- Present results in a clear, organized format showing trip times, prices, and available classes\n\n"
+            "**Available Classes:**\n"
+            "- Royal Class: Premium class with fewer seats\n"
+            "- Business: Mid-tier class with good amenities\n"
+            "- Economy: Standard class with more seats\n\n"
+            "**Response Structure:** The tool returns trip information including:\n"
+            "- Trip name and type (EXPRESS, ROYAL EXPRESS, ORDINARY LINE)\n"
+            "- Departure and arrival times\n"
+            "- Route information (boarding and landing stations)\n"
+            "- Price in TZS (Tanzanian Shillings)\n"
+            "- Railway car details with seat availability by class\n"
+            "- Capacity and availability for each class\n\n"
 
             "## 📋 COMMUNICATION GUIDELINES\n"
             "- Maintain a conversational but professional tone\n"
