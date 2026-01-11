@@ -362,7 +362,106 @@ def health_check_task() -> Dict[str, Any]:
 
 
 # ============================================================================
-# EMAIL ENGAGEMENT TASKS (I/O-Bound)
+# WELCOME EMAIL TASKS (I/O-Bound)
+# ============================================================================
+
+@io_bound_task(
+    name="app.celery_tasks.send_welcome_emails_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2, "countdown": 60},
+)
+def send_welcome_emails_task(self) -> Dict[str, Any]:
+    """
+    Send welcome emails to new users who haven't received them yet.
+    
+    This task finds users created in the last 24 hours who are verified
+    but haven't received a welcome email, and sends them one.
+    
+    Returns:
+        Dict with email sending statistics
+    """
+    try:
+        from datetime import datetime, timedelta
+        from app.services.database_service import connect_db, is_connected
+        from app.models.auth import User
+        from app.services.auth_service import email_service
+        
+        # Ensure MongoDB connection
+        from app.services.database_service import ensure_connection
+        
+        if not ensure_connection():
+            raise Exception("MongoDB connection not available")
+        
+        logger.info("📧 Celery: Starting welcome emails task")
+        
+        # Get users created in the last 24 hours who are verified
+        # and haven't received a welcome email (check metadata)
+        cutoff_time = datetime.utcnow() - timedelta(hours=24)
+        
+        # Find new verified users who don't have welcome email sent flag
+        new_users = User.objects(
+            created_at__gte=cutoff_time,
+            is_verified=True,
+            is_active=True
+        ).exclude('password_hash').all()
+        
+        sent_count = 0
+        failed_count = 0
+        total_users = len(new_users)
+        
+        for user in new_users:
+            try:
+                # Check if welcome email was already sent (stored in metadata)
+                if user.metadata and user.metadata.get('welcome_email_sent'):
+                    continue
+                
+                # Send welcome email
+                success = email_service.send_welcome_email(
+                    to_email=user.email,
+                    fullname=user.fullname or f"{user.first_name} {user.last_name}".strip(),
+                    user_id=str(user.id)
+                )
+                
+                if success:
+                    # Mark welcome email as sent in user metadata
+                    if not user.metadata:
+                        user.metadata = {}
+                    user.metadata['welcome_email_sent'] = True
+                    user.metadata['welcome_email_sent_at'] = datetime.utcnow().isoformat()
+                    user.save()
+                    sent_count += 1
+                    logger.info(f"✅ Sent welcome email to {user.email}")
+                else:
+                    failed_count += 1
+                    logger.warning(f"⚠️ Failed to send welcome email to {user.email}")
+                    
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"Error sending welcome email to {user.email}: {e}")
+                continue
+        
+        logger.info(f"✅ Celery: Welcome emails sent: {sent_count} successful, {failed_count} failed")
+        
+        return {
+            "status": "success",
+            "sent_count": sent_count,
+            "failed_count": failed_count,
+            "total_users": total_users,
+        }
+    except Exception as e:
+        logger.error(f"Error getting new users: {e}")
+        return {
+            "status": "error",
+            "sent_count": 0,
+            "failed_count": 0,
+            "total_users": 0,
+            "error": str(e)
+        }
+
+
+# ============================================================================
+# REFERRAL MILESTONE CHECKING TASKS (I/O-Bound)
 # ============================================================================
 
 @io_bound_task(
@@ -382,10 +481,17 @@ def send_welcome_emails_task(self) -> Dict[str, Any]:
         Dict with send statistics
     """
     try:
-        from app.services.email_service import email_service
-        from app.services.engagement_reader_service import engagement_reader_service
+        from app.services.referral_service import referral_service
+        from app.services.database_service import connect_db, is_connected
+        from app.models.engagement import Referral
         
-        logger.info("📧 Celery: Starting welcome emails task")
+        # Ensure MongoDB connection
+        from app.services.database_service import ensure_connection
+        
+        if not ensure_connection():
+            raise Exception("MongoDB connection not available")
+        
+        logger.info("🔍 Celery: Starting referral milestone check")
         
         # Get users registered 1 hour ago
         new_users = engagement_reader_service.get_new_users(hours_ago=1)

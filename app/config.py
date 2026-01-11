@@ -24,7 +24,7 @@ class Settings:
     # ENVIRONMENT CONFIGURATION
     # ============================================================================
     ENVIRONMENT: str = os.getenv('ENVIRONMENT', 'development').lower()
-    IS_DEV: bool = ENVIRONMENT == 'development'
+    IS_DEV: bool = ENVIRONMENT == 'production'
     
     # ============================================================================
     # DATABASE CONFIGURATION
@@ -38,9 +38,6 @@ class Settings:
     # Chatbot API configuration
     CHATBOT_MODEL: str = os.getenv("CHATBOT_MODEL", "openai:gpt-4")
     CHATBOT_API_KEY: str = os.getenv("CHATBOT_API_KEY", "")
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
-    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
     
     # ============================================================================
@@ -83,10 +80,10 @@ logger.info(f"Running in {settings.ENVIRONMENT} mode")
 
 # Validate required API keys in production
 if not settings.IS_DEV:
-    if not settings.CHATBOT_API_KEY and not settings.OPENAI_API_KEY:
-        logger.warning("CHATBOT_API_KEY or OPENAI_API_KEY environment variable is recommended in production")
+    if not settings.CHATBOT_API_KEY:
+        logger.warning("CHATBOT_API_KEY environment variable is required in production")
     if not settings.TAVILY_API_KEY:
-        logger.warning("TAVILY_API_KEY environment variable is recommended in production")
+        logger.warning("TAVILY_API_KEY environment variable is required in production")
 
 # ============================================================================
 # MODEL PROVIDER CONFIGURATION
@@ -95,12 +92,6 @@ if not settings.IS_DEV:
 def get_model_provider(model: str) -> str:
     """Determine the model provider from the model string."""
     if model.startswith("openai:"):
-        return "openai"
-    elif model.startswith("anthropic:"):
-        return "anthropic"
-    elif model.startswith("google:"):
-        return "google_genai"
-    else:
         logger.warning(f"Unknown model prefix for {model}, using OpenAI as default")
         return "openai"
 
@@ -108,11 +99,7 @@ MODEL_PROVIDER = get_model_provider(settings.CHATBOT_MODEL)
 
 # Set environment variables for the selected model provider
 if MODEL_PROVIDER == "openai":
-    os.environ["OPENAI_API_KEY"] = settings.CHATBOT_API_KEY or settings.OPENAI_API_KEY or ""
-elif MODEL_PROVIDER == "anthropic":
-    os.environ["ANTHROPIC_API_KEY"] = settings.ANTHROPIC_API_KEY or settings.CHATBOT_API_KEY or ""
-elif MODEL_PROVIDER == "google_genai":
-    os.environ["GOOGLE_API_KEY"] = settings.GOOGLE_API_KEY or settings.CHATBOT_API_KEY or ""
+    os.environ["CHATBOT_API_KEY"] = settings.CHATBOT_API_KEY
 
 # Set Tavily API key
 os.environ["TAVILY_API_KEY"] = settings.TAVILY_API_KEY or ""

@@ -34,15 +34,21 @@ def connect_db():
             return None
         
         # Connect to MongoDB
+        # Increase timeouts to handle DNS resolution issues
         _connection = connect(
             db=settings.DATABASE_NAME,
             host=settings.MONGO_URI,
             alias='default',
-            serverSelectionTimeoutMS=5000,  # 5 second timeout
-            connectTimeoutMS=10000,  # 10 second connection timeout
-            socketTimeoutMS=20000,  # 20 second socket timeout
+            serverSelectionTimeoutMS=30000,  # 30 second timeout (increased for DNS issues)
+            connectTimeoutMS=30000,  # 30 second connection timeout
+            socketTimeoutMS=60000,  # 60 second socket timeout
             retryWrites=True,
-            w='majority'  # Write concern
+            w='majority',  # Write concern
+            # Additional connection options for better reliability
+            maxPoolSize=10,
+            minPoolSize=1,
+            maxIdleTimeMS=45000,
+            waitQueueTimeoutMS=10000
         )
         
         _is_connected = True
@@ -79,7 +85,38 @@ def is_connected() -> bool:
     Returns:
         True if connected, False otherwise
     """
-    return _is_connected
+    global _is_connected
+    
+    if not _is_connected:
+        return False
+    
+    # Verify connection is actually working by checking if we can access the database
+    try:
+        from mongoengine.connection import get_connection
+        conn = get_connection(alias='default')
+        # Try to ping the database to verify connection (without requiring models)
+        # Use the database's command method directly to avoid model registration issues
+        db = conn[conn.name]
+        db.command('ping')
+        return True
+    except Exception:
+        # Connection exists but is not working, reset flag
+        _is_connected = False
+        return False
+
+
+def ensure_connection():
+    """
+    Ensure MongoDB connection is established.
+    This is useful for Celery workers that may not have inherited the connection.
+    
+    Returns:
+        True if connected, False otherwise
+    """
+    if is_connected():
+        return True
+    
+    return connect_db() is not None
 
 
 @contextmanager

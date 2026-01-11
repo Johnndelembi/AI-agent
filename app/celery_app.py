@@ -70,13 +70,8 @@ celery_app.conf.update(
         "app.celery_tasks.scrape_webpage_task": {"queue": "io_bound"},
         "app.celery_tasks.process_document_task": {"queue": "cpu_intensive"},
         "app.celery_tasks.generate_response_task": {"queue": "cpu_intensive"},
-        # Email engagement tasks
+        "app.celery_tasks.check_referral_milestones_task": {"queue": "io_bound"},
         "app.celery_tasks.send_welcome_emails_task": {"queue": "io_bound"},
-        "app.celery_tasks.send_re_engagement_emails_task": {"queue": "io_bound"},
-        "app.celery_tasks.send_engagement_form_emails_task": {"queue": "io_bound"},
-        "app.celery_tasks.send_curated_emails_task": {"queue": "io_bound"},
-        "app.celery_tasks.send_referral_campaign_emails_task": {"queue": "io_bound"},
-        "app.celery_tasks.send_points_notification_emails_task": {"queue": "io_bound"},
     },
     
     # Beat scheduler (for periodic tasks)
@@ -114,6 +109,10 @@ celery_app.conf.update(
             "task": "app.celery_tasks.send_points_notification_emails_task",
             "schedule": 86400.0,  # Every day
         },
+        "send-welcome-emails": {
+            "task": "app.celery_tasks.send_welcome_emails_task",
+            "schedule": 1800.0,  # Every 30 minutes
+        },
     },
 )
 
@@ -130,6 +129,41 @@ def on_worker_ready(sender, **kwargs):
     connect_db()
     
     logger.info("🚀 Celery worker is ready and waiting for tasks")
+    
+    # Ensure MongoDB connection is established in worker
+    # Import models first to register them with MongoEngine
+    try:
+        # Import models to register them with MongoEngine before connecting
+        # This ensures models are available when connection is established
+        logger.info("📦 Importing MongoDB models for Celery worker...")
+        
+        try:
+            from app.models.auth import User, OTPVerification, PasswordResetToken
+            logger.debug("✅ Auth models imported")
+        except ImportError as e:
+            logger.warning(f"⚠️ Could not import auth models: {e}")
+        
+        try:
+            from app.models.database import Employee, MealSelection, MealReminder, MealOptions, Conversation
+            logger.debug("✅ Database models imported")
+        except ImportError as e:
+            logger.warning(f"⚠️ Could not import database models: {e}")
+        
+        try:
+            from app.models.engagement import Referral, UserEngagement, ReferralCode
+            logger.debug("✅ Engagement models imported")
+        except ImportError as e:
+            logger.warning(f"⚠️ Could not import engagement models: {e}")
+        
+        # Now ensure connection (models are already registered)
+        from app.services.database_service import ensure_connection
+        
+        if ensure_connection():
+            logger.info("✅ MongoDB connected successfully in Celery worker")
+        else:
+            logger.warning("⚠️ MongoDB connection failed in Celery worker - tasks may fail")
+    except Exception as e:
+        logger.error(f"❌ Failed to connect MongoDB in Celery worker: {e}")
 
 
 @worker_shutdown.connect
