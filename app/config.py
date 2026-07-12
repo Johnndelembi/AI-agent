@@ -42,6 +42,25 @@ class Settings:
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
+
+    # ============================================================================
+    # LEGAL RESEARCH CONFIGURATION
+    # ============================================================================
+    TANZLII_BASE_URL: str = os.getenv("TANZLII_BASE_URL", "https://tanzlii.org")
+    LEGAL_CACHE_TTL_HOURS: int = int(os.getenv("LEGAL_CACHE_TTL_HOURS", "24"))
+    LEGAL_SEARCH_RESULTS_LIMIT: int = int(os.getenv("LEGAL_SEARCH_RESULTS_LIMIT", "5"))
+    LEGAL_WARM_CACHE_ENABLED: bool = os.getenv("LEGAL_WARM_CACHE_ENABLED", "true").lower() == "true"
+    LEGAL_WARM_CACHE_PER_COLLECTION: int = int(os.getenv("LEGAL_WARM_CACHE_PER_COLLECTION", "3"))
+    PLAYWRIGHT_ENABLED: bool = os.getenv("PLAYWRIGHT_ENABLED", "true").lower() == "true"
+    BROWSER_FETCHER_MODE: str = os.getenv("BROWSER_FETCHER_MODE", "local")
+    PLAYWRIGHT_BROWSER: str = os.getenv("PLAYWRIGHT_BROWSER", "chromium")
+    PLAYWRIGHT_HEADLESS: bool = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() == "true"
+    PLAYWRIGHT_TIMEOUT_MS: int = int(os.getenv("PLAYWRIGHT_TIMEOUT_MS", "30000"))
+    BROWSERBASE_API_KEY: str = os.getenv("BROWSERBASE_API_KEY", "")
+    BROWSERBASE_PROJECT_ID: str = os.getenv("BROWSERBASE_PROJECT_ID", "")
+    BROWSERBASE_REGION: str = os.getenv("BROWSERBASE_REGION", "")
+    BROWSERBASE_USE_PROXY: bool = os.getenv("BROWSERBASE_USE_PROXY", "false").lower() == "true"
+    BROWSERBASE_USE_VERIFIED: bool = os.getenv("BROWSERBASE_USE_VERIFIED", "false").lower() == "true"
     
     # ============================================================================
     # OAUTH CONFIGURATION
@@ -201,6 +220,21 @@ TTS_LANG_CODE = settings.TTS_LANG_CODE
 CHATBOT_MODEL = settings.CHATBOT_MODEL
 CHATBOT_API_KEY = settings.CHATBOT_API_KEY
 TAVILY_API_KEY = settings.TAVILY_API_KEY
+TANZLII_BASE_URL = settings.TANZLII_BASE_URL
+LEGAL_CACHE_TTL_HOURS = settings.LEGAL_CACHE_TTL_HOURS
+LEGAL_SEARCH_RESULTS_LIMIT = settings.LEGAL_SEARCH_RESULTS_LIMIT
+LEGAL_WARM_CACHE_ENABLED = settings.LEGAL_WARM_CACHE_ENABLED
+LEGAL_WARM_CACHE_PER_COLLECTION = settings.LEGAL_WARM_CACHE_PER_COLLECTION
+PLAYWRIGHT_ENABLED = settings.PLAYWRIGHT_ENABLED
+BROWSER_FETCHER_MODE = settings.BROWSER_FETCHER_MODE
+PLAYWRIGHT_BROWSER = settings.PLAYWRIGHT_BROWSER
+PLAYWRIGHT_HEADLESS = settings.PLAYWRIGHT_HEADLESS
+PLAYWRIGHT_TIMEOUT_MS = settings.PLAYWRIGHT_TIMEOUT_MS
+BROWSERBASE_API_KEY = settings.BROWSERBASE_API_KEY
+BROWSERBASE_PROJECT_ID = settings.BROWSERBASE_PROJECT_ID
+BROWSERBASE_REGION = settings.BROWSERBASE_REGION
+BROWSERBASE_USE_PROXY = settings.BROWSERBASE_USE_PROXY
+BROWSERBASE_USE_VERIFIED = settings.BROWSERBASE_USE_VERIFIED
 GOOGLE_CLIENT_ID = settings.GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET = settings.GOOGLE_CLIENT_SECRET
 GOOGLE_REDIRECT_URI = settings.GOOGLE_REDIRECT_URI
@@ -353,4 +387,3 @@ __all__ = [
     'CORS_ALLOW_METHODS',
     'CORS_ALLOW_HEADERS',
 ]
-

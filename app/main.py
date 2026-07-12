@@ -1,6 +1,7 @@
 import asyncio
 import signal
 from contextlib import asynccontextmanager
+from contextlib import suppress
 from typing import AsyncIterator
 
 from fastapi import FastAPI
@@ -17,6 +18,7 @@ from app.controllers.referral import router as referral_router
 from app.controllers.admin import router as admin_router
 from app.services.chat_service import ChatService
 from app.services.audio_service import AudioService
+from app.services.tanzlii_service import TanzLIIService
 
 
 @asynccontextmanager
@@ -25,10 +27,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Initialize services
     app.state.chat_service = ChatService()
     app.state.audio_service = AudioService()
+    app.state.legal_warm_cache_task = None
     
     # Pre-warm TTS pipeline for faster first request
     from app.services.tts_service import prewarm_tts_pipeline
     await asyncio.to_thread(prewarm_tts_pipeline)
+
+    from app.config import LEGAL_WARM_CACHE_ENABLED, LEGAL_WARM_CACHE_PER_COLLECTION, logger
+
+    async def _warm_legal_cache():
+        logger.info(
+            "Starting TanzLII warm-cache task with %s items per collection",
+            LEGAL_WARM_CACHE_PER_COLLECTION,
+        )
+        service = TanzLIIService()
+        try:
+            stats = await asyncio.to_thread(
+                service.warm_cache_recent,
+                LEGAL_WARM_CACHE_PER_COLLECTION,
+            )
+            logger.info("TanzLII warm-cache completed: %s", stats)
+        except Exception as exc:
+            logger.warning("TanzLII warm-cache task failed: %s", exc)
+
+    if LEGAL_WARM_CACHE_ENABLED:
+        app.state.legal_warm_cache_task = asyncio.create_task(_warm_legal_cache())
 
     # Graceful shutdown handler
     stop_event = asyncio.Event()
@@ -45,6 +68,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     # Cleanup services
+    warm_cache_task = getattr(app.state, "legal_warm_cache_task", None)
+    if warm_cache_task and not warm_cache_task.done():
+        warm_cache_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await warm_cache_task
     await app.state.chat_service.shutdown()
     await app.state.audio_service.shutdown()
 

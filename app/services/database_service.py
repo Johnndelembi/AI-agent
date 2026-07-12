@@ -132,6 +132,7 @@ def setup_database():
                 Employee, MealSelection, MealReminder, MealOptions, 
                 Conversation
             )
+            from ..models.legal import LegalDocument
             from ..models.auth import (
                 User, OTPVerification, PasswordResetToken
             )
@@ -160,6 +161,7 @@ def setup_database():
                 MealReminder.ensure_indexes()
                 MealOptions.ensure_indexes()
                 Conversation.ensure_indexes()
+                LegalDocument.ensure_indexes()
                 User.ensure_indexes()
                 OTPVerification.ensure_indexes()
                 PasswordResetToken.ensure_indexes()
@@ -180,4 +182,3 @@ def setup_database():
 
 # Initialize database on module import
 setup_database()
-
