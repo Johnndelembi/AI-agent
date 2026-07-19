@@ -15,6 +15,7 @@ tavily-python
 beautifulsoup4
 httpx  # Async HTTP client (replaced requests for non-blocking I/O)
 feedparser
+playwright
 
 # Scientific computing (for TTS)
 numpy

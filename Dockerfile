@@ -21,6 +21,17 @@ COPY requirements.txt .
 # Install Python dependencies with increased timeout and retries
 RUN pip install --no-cache-dir --timeout=1000 --retries=5 -r requirements.txt
 
+# Install Playwright browser binaries and OS dependencies for browser-backed fetches
+RUN python -m playwright install --with-deps chromium
+
+# Optional Kokoro/Torch stack for TTS. Disabled by default to keep builds light.
+ARG INSTALL_TTS=false
+RUN if [ "$INSTALL_TTS" = "true" ]; then \
+        pip install --no-cache-dir --timeout=1000 --retries=5 -r requirements-tts.txt; \
+    else \
+        echo "Skipping optional TTS dependency stack"; \
+    fi
+
 # Install spaCy English language model
 RUN python -m spacy download en_core_web_sm
 
