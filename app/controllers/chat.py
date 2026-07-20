@@ -1,8 +1,9 @@
 """Chat controller for handling chat-related endpoints."""
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from typing import List, Optional
 
-from app.models.chat import ChatRequest, ChatResponse, ChatHistoryRequest, ChatHistoryResponse
+from app.models.chat import ChatRequest, ChatResponse, ChatHistoryRequest, ChatHistoryResponse, ChatStreamRequest
 from app.models.auth import User
 from app.services.chat_service import ChatService
 from app.dependencies import get_chat_service
@@ -10,6 +11,33 @@ from app.utils.auth_utils import get_current_active_user
 from app.utils.error_handler import handle_http_errors, success_response
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+
+def _extract_text_from_parts(parts: List[dict]) -> str:
+    text_parts: List[str] = []
+    for part in parts:
+        if isinstance(part, dict) and part.get("type") == "text":
+            text_parts.append(str(part.get("text", "")))
+    return "".join(text_parts).strip()
+
+
+def _get_latest_user_message(payload: ChatStreamRequest) -> str:
+    if payload.message and payload.message.strip():
+        return payload.message.strip()
+
+    for item in reversed(payload.messages or []):
+        if item.get("role") != "user":
+            continue
+        parts = item.get("parts")
+        if isinstance(parts, list):
+            text = _extract_text_from_parts(parts)
+            if text:
+                return text
+        content = str(item.get("content", "")).strip()
+        if content:
+            return content
+
+    raise ValueError("No user message was provided for streaming")
 
 
 @router.post("/message", response_model=ChatResponse, summary="Send a chat message")
@@ -29,12 +57,42 @@ async def send_message(
     - **user_id**: Ignored - will use authenticated user's ID for security
     """
     # Force user_id to be the authenticated user's ID for security
-    response, message_id = await chat_service.send_message(
+    response, message_id, metadata = await chat_service.send_message(
         message=request.message,
         thread_id=request.thread_id,
-        user_id=str(current_user.id)  # Use authenticated user's ID
+        user_id=str(current_user.id),  # Use authenticated user's ID
+        attachment_ids=request.attachment_ids or [],
     )
-    return ChatResponse(response=response, thread_id=request.thread_id, message_id=message_id)
+    return ChatResponse(
+        response=response,
+        thread_id=request.thread_id,
+        message_id=message_id,
+        metadata=metadata,
+    )
+
+
+@router.post("/stream", summary="Stream a chat message response")
+@handle_http_errors("Error streaming message")
+async def stream_message(
+    request: ChatStreamRequest,
+    current_user: User = Depends(get_current_active_user),
+    chat_service: ChatService = Depends(get_chat_service),
+) -> StreamingResponse:
+    user_message = _get_latest_user_message(request)
+    stream = await chat_service.stream_message(
+        message=user_message,
+        thread_id=request.thread_id or "default",
+        user_id=str(current_user.id),
+        attachment_ids=request.attachment_ids or [],
+    )
+    return StreamingResponse(
+        stream,
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/history", response_model=ChatHistoryResponse, summary="Get chat history")
@@ -135,4 +193,3 @@ async def get_conversation_stats(
         user_id=str(current_user.id)  # Only allow access to user's own conversations
     )
     return stats
-

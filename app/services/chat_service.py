@@ -1,10 +1,12 @@
 """Chat service for handling conversational AI logic."""
 import asyncio
-from typing import List, Dict, Any, Optional
+import re
+from typing import AsyncIterator, List, Dict, Any, Optional
 
 from app.services.agent_service import ConversationalAgent
 from app.models.database import Conversation
 from app.config import logger
+from app.services.file_service import file_service
 
 
 class ChatService:
@@ -24,7 +26,13 @@ class ChatService:
                     self._agent = ConversationalAgent()
         return self._agent
     
-    async def send_message(self, message: str, thread_id: str = "default", user_id: Optional[str] = None) -> tuple[str, str]:
+    async def send_message(
+        self,
+        message: str,
+        thread_id: str = "default",
+        user_id: Optional[str] = None,
+        attachment_ids: Optional[List[str]] = None,
+    ) -> tuple[str, str, Dict[str, Any]]:
         """
         Send a message to the chatbot and get a response.
         
@@ -34,7 +42,7 @@ class ChatService:
             user_id: Required user identifier for security
             
         Returns:
-            Tuple of (chatbot's response, message_id)
+            Tuple of (chatbot's response, message_id, message metadata)
         """
         if not user_id:
             raise ValueError("user_id is required for security")
@@ -47,32 +55,134 @@ class ChatService:
                 user_id=user_id
             )
             
+            attachment_payloads = []
+            if attachment_ids:
+                attachment_payloads = await asyncio.to_thread(
+                    file_service.build_attachment_payloads,
+                    user_id,
+                    attachment_ids,
+                )
+
             # Store user message in MongoDB
             _, user_msg_id = await asyncio.to_thread(
                 conversation.add_message,
                 role='user',
-                content=message
+                content=message,
+                metadata={"attachments": attachment_payloads} if attachment_payloads else {},
             )
             
             # Get AI response
             agent = await self._ensure_agent()
-            response = await agent.stream_conversation(message, thread_id=thread_id)
+            agent_result = await agent.stream_conversation(
+                message,
+                thread_id=thread_id,
+                user_id=user_id,
+                attachments=attachment_payloads,
+            )
+            response = agent_result["response"]
+            response_metadata = agent_result.get("metadata", {})
             
             # Store assistant response in MongoDB and get its message_id
             _, assistant_msg_id = await asyncio.to_thread(
                 conversation.add_message,
                 role='assistant',
-                content=response
+                content=response,
+                metadata=response_metadata,
             )
             
-            return response, assistant_msg_id
+            return response, assistant_msg_id, response_metadata
         except Exception as e:
             logger.error(f"Error in send_message: {e}")
             # If MongoDB fails, still try to get response from agent
             from uuid import uuid4
             agent = await self._ensure_agent()
-            response = await agent.stream_conversation(message, thread_id=thread_id)
-            return response, str(uuid4())  # Generate fallback message_id
+            agent_result = await agent.stream_conversation(
+                message,
+                thread_id=thread_id,
+                user_id=user_id,
+                attachments=[],
+            )
+            return agent_result["response"], str(uuid4()), agent_result.get("metadata", {})
+
+    async def stream_message(
+        self,
+        message: str,
+        thread_id: str = "default",
+        user_id: Optional[str] = None,
+        attachment_ids: Optional[List[str]] = None,
+    ) -> AsyncIterator[str]:
+        """Generate a streamed text response for AI SDK text transport."""
+        if not user_id:
+            raise ValueError("user_id is required for security")
+
+        try:
+            conversation = await asyncio.to_thread(
+                Conversation.get_or_create,
+                thread_id=thread_id,
+                user_id=user_id,
+            )
+
+            attachment_payloads = []
+            if attachment_ids:
+                attachment_payloads = await asyncio.to_thread(
+                    file_service.build_attachment_payloads,
+                    user_id,
+                    attachment_ids,
+                )
+
+            await asyncio.to_thread(
+                conversation.add_message,
+                role="user",
+                content=message,
+                metadata={"attachments": attachment_payloads} if attachment_payloads else {},
+            )
+
+            agent = await self._ensure_agent()
+            agent_result = await agent.stream_conversation(
+                message,
+                thread_id=thread_id,
+                user_id=user_id,
+                attachments=attachment_payloads,
+            )
+            response = agent_result["response"]
+            response_metadata = agent_result.get("metadata", {})
+
+            await asyncio.to_thread(
+                conversation.add_message,
+                role="assistant",
+                content=response,
+                metadata=response_metadata,
+            )
+        except Exception as exc:
+            logger.error(f"Error in stream_message: {exc}")
+            response = f"Unable to complete the request: {exc}"
+
+        async def _generator() -> AsyncIterator[str]:
+            for chunk in self._chunk_text(response):
+                yield chunk
+                await asyncio.sleep(0)
+
+        return _generator()
+
+    def _chunk_text(self, text: str, target_size: int = 48) -> List[str]:
+        """Split text into reasonably sized chunks for incremental delivery."""
+        pieces = re.split(r"(\s+)", text)
+        chunks: List[str] = []
+        buffer = ""
+
+        for piece in pieces:
+            if not piece:
+                continue
+            if len(buffer) + len(piece) > target_size and buffer:
+                chunks.append(buffer)
+                buffer = piece
+            else:
+                buffer += piece
+
+        if buffer:
+            chunks.append(buffer)
+
+        return chunks or [text]
     
     async def get_history(self, thread_id: str = "default", user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -338,4 +448,3 @@ class ChatService:
                 'exists': False,
                 'error': str(e)
             }
-

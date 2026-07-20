@@ -11,6 +11,10 @@ class ChatRequest(BaseModel):
         description="Thread ID for conversation context"
     )
     user_id: Optional[str] = Field(default=None, description="Optional user identifier")
+    attachment_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Optional uploaded file IDs to associate with the user message",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -18,6 +22,30 @@ class ChatResponse(BaseModel):
     response: str = Field(..., description="The chatbot's response")
     thread_id: str = Field(..., description="Thread ID used for this conversation")
     message_id: str = Field(..., description="Unique identifier for the assistant's message")
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional message metadata such as generated documents",
+    )
+
+
+class ChatStreamRequest(BaseModel):
+    """Request model for streamed chat messages."""
+    messages: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Optional chat UI messages from the client",
+    )
+    message: Optional[str] = Field(
+        default=None,
+        description="Optional latest user message text",
+    )
+    thread_id: Optional[str] = Field(
+        default="default",
+        description="Thread ID for conversation context",
+    )
+    attachment_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Optional uploaded file IDs to associate with the latest user message",
+    )
 
 
 class ChatHistoryRequest(BaseModel):
@@ -68,4 +96,3 @@ class TTSVoiceResponse(BaseModel):
     current_voice: str = Field(..., description="Currently selected TTS voice code")
     current_voice_description: str = Field(..., description="Description of the currently selected voice")
     available_voices: List[VoiceInfo] = Field(..., description="List of available TTS voices with descriptions")
-

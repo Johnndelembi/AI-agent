@@ -13,6 +13,7 @@ from app.controllers.health import router as health_router
 from app.controllers.whatsapp import router as whatsapp_router
 from app.controllers.celery_monitor import router as celery_router
 from app.controllers.auth import router as auth_router
+from app.controllers.files import router as files_router
 from app.controllers.engagement import router as engagement_router
 from app.controllers.referral import router as referral_router
 from app.controllers.admin import router as admin_router
@@ -98,6 +99,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(files_router)
 app.include_router(engagement_router)  # Engagement and user data collection
 app.include_router(referral_router)  # Referral system and points
 app.include_router(admin_router)  # Admin dashboard endpoints

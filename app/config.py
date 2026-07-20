@@ -84,6 +84,12 @@ class Settings:
     # ============================================================================
     TTS_VOICE: str = os.getenv("TTS_VOICE", "af_heart")
     TTS_LANG_CODE: str = os.getenv("TTS_LANG_CODE", "b")
+
+    # ============================================================================
+    # DOCUMENTS & FILES
+    # ============================================================================
+    MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "20"))
+    FILE_STORAGE_DIR: str = os.getenv("FILE_STORAGE_DIR", "data/chat_files")
     
     # ============================================================================
     # APPLICATION SETTINGS
@@ -199,6 +205,8 @@ AUDIO_OUTPUT_DIR.mkdir(exist_ok=True)
 # Data directory for file storage (not for database)
 DATA_DIR = Path('data')
 DATA_DIR.mkdir(exist_ok=True)
+FILE_STORAGE_DIR = Path(settings.FILE_STORAGE_DIR)
+FILE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 # MongoDB connection details (from settings)
 DATABASE_URL = settings.MONGO_URI
@@ -219,6 +227,8 @@ CORS_ALLOW_METHODS = settings.CORS_ALLOW_METHODS
 CORS_ALLOW_HEADERS = settings.CORS_ALLOW_HEADERS
 TTS_VOICE = settings.TTS_VOICE
 TTS_LANG_CODE = settings.TTS_LANG_CODE
+MAX_UPLOAD_SIZE_MB = settings.MAX_UPLOAD_SIZE_MB
+FILE_STORAGE_DIR = Path(settings.FILE_STORAGE_DIR)
 CHATBOT_MODEL = settings.CHATBOT_MODEL
 CHATBOT_API_KEY = settings.CHATBOT_API_KEY
 TAVILY_API_KEY = settings.TAVILY_API_KEY
